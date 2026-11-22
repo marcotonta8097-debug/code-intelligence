@@ -1,0 +1,11 @@
+{
+  "product": "code_intelligence",
+  "packVersion": "CINT-PACK-1.0",
+  "defaultRepoSlug": "code-intelligence",
+  "layout": [
+    "frontend/",
+    "backend/",
+    "json/",
+    "src/"
+  ]
+}

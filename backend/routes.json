@@ -1,0 +1,19 @@
+{
+  "product": "code_intelligence",
+  "basePath": "/api/projects/:projectId/cint",
+  "routes": [
+    "auth",
+    "admin",
+    "analyze",
+    "assistant",
+    "export",
+    "import",
+    "upload",
+    "agents/run",
+    "github/connect",
+    "github/repos",
+    "github/sync",
+    "github/publish-product",
+    ":entity"
+  ]
+}
