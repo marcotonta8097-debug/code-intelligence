@@ -1,4 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { requireCintProductAuth } from "@/lib/cint/requireCintProductAuth";
 import { withSentryApiRoute } from "@/lib/monitoring/withSentryApiRoute";
 import {
   assessCintIngressEgressReadiness,
@@ -30,6 +31,8 @@ export const Route = createFileRoute("/api/projects/$projectId/cint/export")({
         if (!projectId) {
           return Response.json({ ok: false, error: "missing_project" }, { status: 400 });
         }
+        const gate = await requireCintProductAuth(request, "workspace.read");
+        if (!gate.ok) return gate.response;
         const url = new URL(request.url);
         const format = normalizeFormat(url.searchParams.get("format") || "json");
         const asAttachment =

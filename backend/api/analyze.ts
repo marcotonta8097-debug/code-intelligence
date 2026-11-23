@@ -1,4 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { requireCintProductAuth } from "@/lib/cint/requireCintProductAuth";
 import { withSentryApiRoute } from "@/lib/monitoring/withSentryApiRoute";
 import { analyzeCodeIntelligenceSnapshot } from "@/core/codeIntelligence/codeIntelligenceAnalysis";
 import {
@@ -22,6 +23,8 @@ export const Route = createFileRoute("/api/projects/$projectId/cint/analyze")({
         if (!projectId) {
           return Response.json({ ok: false, error: "missing_project" }, { status: 400 });
         }
+        const gate = await requireCintProductAuth(request, "findings.triage");
+        if (!gate.ok) return gate.response;
         try {
           await enforceRateLimitPlaceholder(`cint-analyze:${projectId}`, "project:cint");
           const body = (await request.json().catch(() => ({}))) as {
@@ -57,6 +60,7 @@ export const Route = createFileRoute("/api/projects/$projectId/cint/analyze")({
           const durationMs = Date.now() - startedAt;
           if (persist) {
             void persistCintAnalysisResults({
+              projectId,
               repository: loaded.repository,
               commitSha: loaded.commitSha,
               analysis,

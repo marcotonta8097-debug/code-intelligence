@@ -1,12 +1,14 @@
-# Code Intelligence (CINT)
+# Code Intelligence
 
-Standalone **Code Intelligence** product repository.
+Standalone **Code Intelligence (CINT)** product export.
 
-Not Replica builder chrome. Not FOC. Not the Replica-app-2026 factory tree.
+This repository is the CINT app — not Replica builder chrome, not FOC.
 
 ## Layout
 
-- `frontend/` — published UI
-- `backend/` — CINT API route sources
-- `json/` — product manifests
-- `src/lib/cint`, `src/core/codeIntelligence` — product owners
+- `frontend/` — published UI (HTML / CSS / JS)
+- `backend/` — CINT API route sources (`/api/projects/:id/cint/*`)
+- `json/` — product manifests and sealed project snapshots
+- `src/lib/cint`, `src/core/codeIntelligence` — product runtime owners
+
+Pack: `CINT-PACK-1.0`

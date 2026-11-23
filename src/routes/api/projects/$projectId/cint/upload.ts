@@ -1,4 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { requireCintProductAuth } from "@/lib/cint/requireCintProductAuth";
 import { withSentryApiRoute } from "@/lib/monitoring/withSentryApiRoute";
 import {
   assessCintIngressEgressReadiness,
@@ -63,11 +64,13 @@ async function readUploadPayload(request: Request): Promise<{
 export const Route = createFileRoute("/api/projects/$projectId/cint/upload")({
   server: {
     handlers: {
-      GET: withSentryApiRoute(PATH, async ({ params }) => {
+      GET: withSentryApiRoute(PATH, async ({ request, params }) => {
         const projectId = params?.projectId?.trim();
         if (!projectId) {
           return Response.json({ ok: false, error: "missing_project" }, { status: 400 });
         }
+        const gate = await requireCintProductAuth(request, "integrations.manage");
+        if (!gate.ok) return gate.response;
         return Response.json({
           ok: true,
           live: true,
@@ -80,6 +83,8 @@ export const Route = createFileRoute("/api/projects/$projectId/cint/upload")({
         if (!projectId) {
           return Response.json({ ok: false, error: "missing_project" }, { status: 400 });
         }
+        const gate = await requireCintProductAuth(request, "integrations.manage");
+        if (!gate.ok) return gate.response;
         try {
           await enforceRateLimitPlaceholder(`cint-upload:${projectId}`, "project:cint");
           const payload = await readUploadPayload(request);

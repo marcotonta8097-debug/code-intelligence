@@ -1,9 +1,9 @@
 /**
  * Shared CI GitHub OAuth callback.
  *
- * GitHub Redirect URI (stable API): /api/projects/oauth/cint/github/callback
- * Browser return (must be a real CI project on the Replica host):
- *   /projects/{cintProjectId}?…&cint_github=connected
+ * GitHub Redirect URI (stable API): /api/cint/github/callback
+ * Browser return: /projects/{cintProjectId}?tab=generator&cint_github=connected
+ * (/deploy/{slug} only when a real published slug is already in returnPath)
  *
  * Project id is carried in signed OAuth state (and recovered from returnPath).
  */
@@ -13,6 +13,7 @@ import {
   cintGitHubOAuthRedirectUri,
   exchangeCintGitHubCode,
   isCintGitHubOAuthConfigured,
+  normalizeCintOAuthReturnPath,
 } from "@/lib/cint/cintGitHubConfig";
 import { verifyCintGitHubOAuthState } from "@/lib/cint/cintOAuthState";
 import { upsertCintGitHubConnection } from "@/lib/cint/cintGitHubConnectionStore";
@@ -21,8 +22,9 @@ import { fetchCintGitHubUser } from "@/lib/cint/cintGitHubRepoOps";
 function projectIdFromReturnPath(returnPath?: string): string | null {
   if (!returnPath?.startsWith("/")) return null;
   const m =
+    returnPath.match(/^\/deploy\/([^/?#]+)/) ||
     returnPath.match(/^\/projects\/([^/?#]+)/) ||
-    returnPath.match(/^\/deploy\/([^/?#]+)/);
+    returnPath.match(/^\/preview\/([^/?#]+)/);
   const id = m?.[1]?.trim() || "";
   if (!id || id === "local" || id === "oauth") return null;
   return id;
@@ -47,10 +49,13 @@ function absoluteAppUrl(request: Request, pathAndQuery: string): string {
   }
 }
 
-function cintProjectHome(projectId: string, flag: "connected" | "error", reason?: string): string {
-  const q = new URLSearchParams({ tab: "generator", cint_github: flag });
+/** Return to CINT project workspace (generator) so Connect → Sync works without a live slug. */
+function cintProductReturn(projectId: string, flag: "connected" | "error", reason?: string): string {
+  const base = normalizeCintOAuthReturnPath(projectId);
+  const q = new URLSearchParams({ cint_github: flag });
   if (reason) q.set("reason", reason);
-  return `/projects/${encodeURIComponent(projectId)}?${q.toString()}`;
+  const sep = base.includes("?") ? "&" : "?";
+  return `${base}${sep}${q.toString()}`;
 }
 
 function redirectTo(request: Request, pathAndQuery: string): Response {
@@ -77,17 +82,17 @@ export async function handleCintGitHubOAuthCallback(request: Request): Promise<R
 
   if (oauthError) {
     if (!projectId) return redirectTo(request, `/?cint_github=error&reason=${encodeURIComponent(oauthError)}`);
-    return redirectTo(request, cintProjectHome(projectId, "error", oauthError));
+    return redirectTo(request, cintProductReturn(projectId, "error", oauthError));
   }
   if (!code || !state) {
     if (!projectId) return redirectTo(request, "/?cint_github=error&reason=missing_code");
-    return redirectTo(request, cintProjectHome(projectId, "error", "missing_code"));
+    return redirectTo(request, cintProductReturn(projectId, "error", "missing_code"));
   }
 
   try {
     if (!isCintGitHubOAuthConfigured()) {
       if (!projectId) return redirectTo(request, "/?cint_github=error&reason=not_configured");
-      return redirectTo(request, cintProjectHome(projectId, "error", "not_configured"));
+      return redirectTo(request, cintProductReturn(projectId, "error", "not_configured"));
     }
 
     const payload = verifyCintGitHubOAuthState(state);
@@ -97,7 +102,7 @@ export async function handleCintGitHubOAuthCallback(request: Request): Promise<R
     }
 
     // Exchange must use the same Redirect URI registered on the GitHub OAuth App.
-    const token = await exchangeCintGitHubCode(code, cintGitHubOAuthRedirectUri());
+    const token = await exchangeCintGitHubCode(code, cintGitHubOAuthRedirectUri(projectId, request));
     const user = await fetchCintGitHubUser(token.access_token);
     await upsertCintGitHubConnection({
       projectId,
@@ -111,30 +116,20 @@ export async function handleCintGitHubOAuthCallback(request: Request): Promise<R
       syncFileCount: 0,
     });
 
-    // Prefer returnPath only when it already points at this CI project on the Replica host.
-    const preferred =
-      payload.returnPath?.startsWith(`/projects/${projectId}`) ||
-      payload.returnPath?.startsWith(`/deploy/${projectId}`)
-        ? payload.returnPath
-        : returnPathHint.startsWith(`/projects/${projectId}`) ||
-            returnPathHint.startsWith(`/deploy/${projectId}`)
-          ? returnPathHint
-          : null;
-
-    if (preferred) {
-      const sep = preferred.includes("?") ? "&" : "?";
-      const withFlag = /cint_github=/.test(preferred)
-        ? preferred
-        : `${preferred}${sep}cint_github=connected`;
-      return redirectTo(request, withFlag);
-    }
-
-    return redirectTo(request, cintProjectHome(projectId, "connected"));
+    const preferred = normalizeCintOAuthReturnPath(
+      projectId,
+      payload.returnPath || returnPathHint || null,
+    );
+    const sep = preferred.includes("?") ? "&" : "?";
+    const withFlag = /cint_github=/.test(preferred)
+      ? preferred
+      : `${preferred}${sep}cint_github=connected`;
+    return redirectTo(request, withFlag);
   } catch (e) {
     const message = e instanceof Error ? e.message : "callback_failed";
     if (!projectId) {
       return redirectTo(request, `/?cint_github=error&reason=${encodeURIComponent(message)}`);
     }
-    return redirectTo(request, cintProjectHome(projectId, "error", message));
+    return redirectTo(request, cintProductReturn(projectId, "error", message));
   }
 }

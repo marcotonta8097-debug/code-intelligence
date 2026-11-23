@@ -106,7 +106,10 @@ export function cintAuthInlineScriptSource(): string {
     }).then(function(r){
       return r.text().then(function(txt){
         var j={};
-        try{ j=txt?JSON.parse(txt):{}; }catch(e){ j={ ok:false, error:"Auth API returned non-JSON ("+r.status+")" }; }
+        try{ j=txt?JSON.parse(txt):{}; }catch(e){
+          var snip=(txt||"").replace(/\\s+/g," ").slice(0,80);
+          j={ ok:false, error:"Auth API returned non-JSON ("+r.status+")"+(snip?(" · "+snip):"") };
+        }
         return { http:r.status, body:j };
       });
     });
@@ -129,7 +132,10 @@ export function cintAuthInlineScriptSource(): string {
         status(form,"Sending reset link… · "+authUrl(),false);
         setBusy(btn,true,"Send reset link");
         var redirectTo="";
-        try{ redirectTo=String((window.top&&window.top.location&&window.top.location.href)||location.href||"").split("#")[0]; }catch(e){}
+        try{
+          redirectTo=String((window.top&&window.top.location&&window.top.location.href)||"").split("#")[0];
+          if(!/^https?:/i.test(redirectTo)) redirectTo="";
+        }catch(e){}
         postAuth({action:"forgot",email:email,redirectTo:redirectTo||undefined}).then(function(res){
           setBusy(btn,false);
           var b=res.body||{};
@@ -183,6 +189,7 @@ export function cintAuthInlineScriptSource(): string {
     form.addEventListener("submit", run, true);
     form.addEventListener("click", function(ev){
       var t=ev.target;
+      if(t && t.nodeType===3) t=t.parentElement;
       if(!t||!t.closest) return;
       var btn=t.closest("[data-cint-auth-submit],button[type='submit']");
       if(!btn||!form.contains(btn)) return;

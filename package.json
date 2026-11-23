@@ -2,6 +2,6 @@
   "name": "@replica/code-intelligence",
   "private": true,
   "version": "1.0.0",
-  "description": "Code Intelligence (CINT) — standalone product (not Replica factory)",
+  "description": "Code Intelligence (CINT) — standalone product export",
   "type": "module"
 }

@@ -1,6 +1,7 @@
 /**
  * CI Part II data surface — CRUD for sealed delivery-schema entities.
  * Uses cintEntityStore (CINT Supabase when configured, else pgbe memory).
+ * Tier 1: requireCintProductAuth + project_id isolation on every store call.
  */
 
 import { createFileRoute } from "@tanstack/react-router";
@@ -11,6 +12,8 @@ import {
 } from "@/core/codeIntelligence/codeIntelligenceDeliverySchema";
 import { handleCintAuthGet, handleCintAuthPost } from "@/lib/cint/cintAuthHttp";
 import { cintEntityStore, cintStoreMode } from "@/lib/cint/cintEntityStore";
+import { requireCintProductAuth } from "@/lib/cint/requireCintProductAuth";
+import type { CintCapability } from "@/lib/cint/cintAuthRoles";
 import {
   enforceRateLimitPlaceholder,
   isProduction,
@@ -83,6 +86,12 @@ function json(body: Record<string, unknown>, status = 200): Response {
   return Response.json(body, { status });
 }
 
+function capabilityForMethod(method: string): CintCapability {
+  if (method === "GET") return "workspace.read";
+  if (method === "DELETE") return "org.admin";
+  return "findings.triage";
+}
+
 export const Route = createFileRoute("/api/projects/$projectId/cint/$entity")({
   server: {
     handlers: {
@@ -96,6 +105,8 @@ export const Route = createFileRoute("/api/projects/$projectId/cint/$entity")({
         if (!projectId || !entity) {
           return json({ success: false, error: "Unknown CI entity" }, 404);
         }
+        const gate = await requireCintProductAuth(request, capabilityForMethod("GET"));
+        if (!gate.ok) return gate.response;
         try {
           await enforceRateLimitPlaceholder(
             `cint-get:${clientIp(request)}:${projectId}:${entity.persistenceKey}`,
@@ -105,7 +116,7 @@ export const Route = createFileRoute("/api/projects/$projectId/cint/$entity")({
           const url = new URL(request.url);
           const id = url.searchParams.get("id");
           if (id) {
-            const row = await cintEntityStore.get(entity.persistenceKey, id);
+            const row = await cintEntityStore.get(entity.persistenceKey, id, projectId);
             if (!row) {
               return json(
                 { ok: false, error: "not_found", path, entity: entity.entity, source: SOURCE },
@@ -121,7 +132,7 @@ export const Route = createFileRoute("/api/projects/$projectId/cint/$entity")({
               source: SOURCE,
             });
           }
-          const rows = await cintEntityStore.list(entity.persistenceKey);
+          const rows = await cintEntityStore.list(entity.persistenceKey, projectId);
           return json({
             ok: true,
             path,
@@ -148,6 +159,8 @@ export const Route = createFileRoute("/api/projects/$projectId/cint/$entity")({
         if (!projectId || !entity) {
           return json({ success: false, error: "Unknown CI entity" }, 404);
         }
+        const gate = await requireCintProductAuth(request, capabilityForMethod("POST"));
+        if (!gate.ok) return gate.response;
         try {
           await enforceRateLimitPlaceholder(
             `cint-post:${clientIp(request)}:${projectId}:${entity.persistenceKey}`,
@@ -173,10 +186,7 @@ export const Route = createFileRoute("/api/projects/$projectId/cint/$entity")({
               );
             }
           }
-          const created = await cintEntityStore.create(entity.persistenceKey, {
-            ...body,
-            projectId,
-          });
+          const created = await cintEntityStore.create(entity.persistenceKey, body, projectId);
           return json(
             {
               ok: true,
@@ -201,6 +211,8 @@ export const Route = createFileRoute("/api/projects/$projectId/cint/$entity")({
         if (!projectId || !entity) {
           return json({ success: false, error: "Unknown CI entity" }, 404);
         }
+        const gate = await requireCintProductAuth(request, capabilityForMethod("PATCH"));
+        if (!gate.ok) return gate.response;
         try {
           await enforceRateLimitPlaceholder(
             `cint-patch:${clientIp(request)}:${projectId}:${entity.persistenceKey}`,
@@ -217,7 +229,7 @@ export const Route = createFileRoute("/api/projects/$projectId/cint/$entity")({
               400,
             );
           }
-          const updated = await cintEntityStore.update(entity.persistenceKey, id, body);
+          const updated = await cintEntityStore.update(entity.persistenceKey, id, body, projectId);
           if (!updated) {
             return json(
               { ok: false, error: "not_found", path, entity: entity.entity, source: SOURCE },
@@ -245,6 +257,8 @@ export const Route = createFileRoute("/api/projects/$projectId/cint/$entity")({
         if (!projectId || !entity) {
           return json({ success: false, error: "Unknown CI entity" }, 404);
         }
+        const gate = await requireCintProductAuth(request, capabilityForMethod("DELETE"));
+        if (!gate.ok) return gate.response;
         try {
           await enforceRateLimitPlaceholder(
             `cint-del:${clientIp(request)}:${projectId}:${entity.persistenceKey}`,
@@ -258,7 +272,7 @@ export const Route = createFileRoute("/api/projects/$projectId/cint/$entity")({
               400,
             );
           }
-          const deleted = await cintEntityStore.remove(entity.persistenceKey, id);
+          const deleted = await cintEntityStore.remove(entity.persistenceKey, id, projectId);
           if (!deleted) {
             return json(
               { ok: false, error: "not_found", path, entity: entity.entity, source: SOURCE },

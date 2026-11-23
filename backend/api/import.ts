@@ -1,4 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { requireCintProductAuth } from "@/lib/cint/requireCintProductAuth";
 import { withSentryApiRoute } from "@/lib/monitoring/withSentryApiRoute";
 import { cintEntityStore } from "@/lib/cint/cintEntityStore";
 import {
@@ -30,11 +31,13 @@ const PATH = "/api/projects/$projectId/cint/import";
 export const Route = createFileRoute("/api/projects/$projectId/cint/import")({
   server: {
     handlers: {
-      GET: withSentryApiRoute(PATH, async ({ params }) => {
+      GET: withSentryApiRoute(PATH, async ({ request, params }) => {
         const projectId = params?.projectId?.trim();
         if (!projectId) {
           return Response.json({ ok: false, error: "missing_project" }, { status: 400 });
         }
+        const gate = await requireCintProductAuth(request, "integrations.manage");
+        if (!gate.ok) return gate.response;
         return Response.json({
           ok: true,
           readiness: assessCintIngressEgressReadiness(),
@@ -53,6 +56,8 @@ export const Route = createFileRoute("/api/projects/$projectId/cint/import")({
         if (!projectId) {
           return Response.json({ ok: false, error: "missing_project" }, { status: 400 });
         }
+        const gate = await requireCintProductAuth(request, "integrations.manage");
+        if (!gate.ok) return gate.response;
         try {
           await enforceRateLimitPlaceholder(`cint-import:${projectId}`, "project:cint");
           const body = (await request.json().catch(() => ({}))) as {
@@ -108,17 +113,21 @@ export const Route = createFileRoute("/api/projects/$projectId/cint/import")({
               syncCommitSha: synced.commitSha,
               syncFileCount: synced.tree.files.length,
             });
-            await cintEntityStore.upsert("repositories", {
-              id: `repo_${source.replace(/[^\w.-]+/g, "_")}`,
-              name: source,
-              url: synced.htmlUrl,
-              provider: "github_read",
-              lastSyncedAt: updated.lastSyncedAt,
-              defaultBranch: synced.defaultBranch,
-              commitSha: synced.commitSha,
-              fileCount: synced.tree.files.length,
-              tree: synced.tree,
-            });
+            await cintEntityStore.upsert(
+              "repositories",
+              {
+                id: `repo_${source.replace(/[^\w.-]+/g, "_")}`,
+                name: source,
+                url: synced.htmlUrl,
+                provider: "github_read",
+                lastSyncedAt: updated.lastSyncedAt,
+                defaultBranch: synced.defaultBranch,
+                commitSha: synced.commitSha,
+                fileCount: synced.tree.files.length,
+                tree: synced.tree,
+              },
+              projectId,
+            );
             const liveIndex = connectionToLiveIndexEvidence(updated);
             const metadataPersisted = await persistCintProjectLiveIndexMetadata(projectId, liveIndex);
             return Response.json({
@@ -221,7 +230,7 @@ export const Route = createFileRoute("/api/projects/$projectId/cint/import")({
             ] as const) {
               for (const row of rows || []) {
                 if (!row || typeof row !== "object") continue;
-                await cintEntityStore.create(table, row as Record<string, unknown>);
+                await cintEntityStore.create(table, row as Record<string, unknown>, projectId);
                 imported += 1;
               }
             }

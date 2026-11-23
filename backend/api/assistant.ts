@@ -1,4 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { requireCintProductAuth } from "@/lib/cint/requireCintProductAuth";
 import { withSentryApiRoute } from "@/lib/monitoring/withSentryApiRoute";
 import type {
   CintAssistantGroundingDep,
@@ -23,6 +24,8 @@ export const Route = createFileRoute("/api/projects/$projectId/cint/assistant")(
         if (!projectId) {
           return Response.json({ ok: false, error: "missing_project" }, { status: 400 });
         }
+        const gate = await requireCintProductAuth(request, "workspace.read");
+        if (!gate.ok) return gate.response;
         if (!isCintLlmConfigured()) {
           return Response.json(
             {

@@ -29,7 +29,7 @@ export function stripCodeIntelligenceRuntime(js: string | null | undefined): str
   return (js.slice(0, start) + js.slice(end + CINT_RUNTIME_END.length)).trim();
 }
 
-export const CINT_RUNTIME_ENGINE_VERSION = "CINT-EE-1.56" as const;
+export const CINT_RUNTIME_ENGINE_VERSION = "CINT-EE-1.66" as const;
 
 export function generateCodeIntelligenceRuntimeScript(): string {
   const seed = demoRuntimeWorkspaceSeed();
@@ -133,6 +133,26 @@ export function generateCodeIntelligenceRuntimeScript(): string {
     if(s&&s.accessToken) h.Authorization="Bearer "+s.accessToken;
     return h;
   }
+  /** Bearer only — for FormData uploads (browser must set multipart boundary). */
+  function authBearerHeaders(){
+    var h={};
+    var s=readSession();
+    if(s&&s.accessToken) h.Authorization="Bearer "+s.accessToken;
+    return h;
+  }
+  /** Honest gate messages — Tier 1 auth must not look like a frozen UI. */
+  function authGateMessage(body, http, actionLabel){
+    body=body||{};
+    var code=body.code;
+    if(http===401||code==="cint_auth_required") return "Sign in required"+(actionLabel?(" to "+actionLabel):"");
+    if(code==="cint_auth_forbidden"){
+      return (body.error||("Role "+(body.role||"Viewer")+" cannot "+(body.capability||"this action")))
+        +" — open Admin → Claim workspace Admin (or ask promote), then sign in again";
+    }
+    if(code==="cint_auth_demo_rejected") return "Demo session blocked — sign in with IdP";
+    if(http===503||code==="cint_auth_not_configured") return "CINT IdP required (set CINT_SUPABASE_*)";
+    return body.error||body.detail||body.code||null;
+  }
   function hostReturnPath(){
     try{
       if(window.top&&window.top.location){
@@ -148,7 +168,7 @@ export function generateCodeIntelligenceRuntimeScript(): string {
     var entity=ENTITY_KEY[k];
     if(!entity) return;
     try{
-      fetch(apiUrl(entity),{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({id:k+"-bundle",key:k,payload:v,provider:"local_snapshot"})}).catch(function(){});
+      fetch(apiUrl(entity),{method:"POST",headers:authHeaders(),body:JSON.stringify({id:k+"-bundle",key:k,payload:v,provider:"local_snapshot"})}).catch(function(){});
     }catch(e){}
   }
   var SECURITY_CATS={SECRETS:1,AUTH:1,ACCESS:1,TLS:1,SEC:1,CONFIG:1,SECURITY:1};
@@ -276,9 +296,15 @@ export function generateCodeIntelligenceRuntimeScript(): string {
   }
   function refreshGitHubStatus(){
     var statusEl=document.querySelector("[data-cint-github-status]");
-    fetch(cintPath("github/status")).then(function(r){ return r.json(); }).then(function(body){
-      if(!body||!body.ok){
-        if(statusEl) statusEl.textContent="GitHub status unavailable";
+    fetch(cintPath("github/status"),{headers:authHeaders()}).then(function(r){
+      return r.json().then(function(body){ return {http:r.status,body:body||{}}; }).catch(function(){
+        return {http:r.status,body:{}};
+      });
+    }).then(function(res){
+      var body=res.body||{};
+      if(!body.ok){
+        if(!statusEl) return;
+        statusEl.textContent=authGateMessage(body,res.http,"read GitHub status")||("GitHub status unavailable ("+res.http+")");
         return;
       }
       paintImportHonesty(!!body.oauthConfigured, !!body.connected);
@@ -287,7 +313,12 @@ export function generateCodeIntelligenceRuntimeScript(): string {
         statusEl.textContent="GitHub OAuth not configured (set CINT_GITHUB_CLIENT_ID + CINT_GITHUB_CLIENT_SECRET)";
         return;
       }
-      if(!body.connected){ statusEl.textContent="GitHub: disconnected — click Connect GitHub"; return; }
+      if(!body.connected){
+        statusEl.textContent=body.redirectUri
+          ?("GitHub: disconnected — Connect GitHub. OAuth callback must be: "+body.redirectUri)
+          :"GitHub: disconnected — click Connect GitHub";
+        return;
+      }
       var live=body.liveIndex&&body.liveIndex.synced;
       statusEl.textContent=live
         ?("GitHub: "+(body.accountLogin||"connected")+" · synced "+(body.selectedRepo||"")+" @ "+String((body.liveIndex&&body.liveIndex.commitSha)||"").slice(0,7))
@@ -297,6 +328,29 @@ export function generateCodeIntelligenceRuntimeScript(): string {
     });
   }
   refreshGitHubStatus();
+  (function consumeGithubOAuthFlag(){
+    try{
+      var topLoc=(window.top&&window.top.location)?window.top.location:location;
+      var sp=new URLSearchParams(topLoc.search||"");
+      var flag=sp.get("cint_github");
+      if(!flag) return;
+      if(flag==="connected"){
+        note("GitHub connected — click List repos, then Sync");
+        refreshGitHubStatus();
+        try{ if(hasSession()) showView("repositories"); }catch(eShow){}
+      } else if(flag==="error"){
+        note("GitHub OAuth error: "+(sp.get("reason")||"unknown"));
+      }
+      try{
+        sp.delete("cint_github");
+        sp.delete("reason");
+        var cleaned=topLoc.pathname+(sp.toString()?("?"+sp.toString()):"")+(topLoc.hash||"");
+        if(window.top&&window.top.history&&window.top.history.replaceState){
+          window.top.history.replaceState({},"",cleaned);
+        }
+      }catch(eClean){}
+    }catch(eFlag){}
+  })();
   var SEED={
     workspace:"eng-platform",
     activeRepo:"payments-api",
@@ -416,12 +470,21 @@ export function generateCodeIntelligenceRuntimeScript(): string {
   function applyLiveTrustChrome(live){
     document.querySelectorAll("[data-cint-trust=\\"mode\\"],[data-cint-trust='mode']").forEach(function(el){
       el.textContent=live?"Live workspace":"Demo workspace";
+      el.setAttribute("data-cint-status-chip","1");
+      el.setAttribute("title","Status label (not a control)");
+      if(live) el.setAttribute("data-cint-live","1"); else el.removeAttribute("data-cint-live");
     });
     document.querySelectorAll("[data-cint-freshness]").forEach(function(el){
       el.textContent=live?"Freshness: live sync":"Freshness: seeded demo";
+      el.setAttribute("data-cint-status-chip","1");
+      el.setAttribute("title","Status label — use Connect / Sync on Repositories");
+      if(live) el.setAttribute("data-cint-live","1"); else el.removeAttribute("data-cint-live");
     });
     document.querySelectorAll("[data-cint-source]").forEach(function(el){
       el.textContent=live?"Evidence: live analysis":"Evidence: illustrative snapshot";
+      el.setAttribute("data-cint-status-chip","1");
+      el.setAttribute("title","Status label — use Run live analysis on Overview");
+      if(live) el.setAttribute("data-cint-live","1"); else el.removeAttribute("data-cint-live");
     });
     document.querySelectorAll("[data-cint-demo=\\"1\\"],[data-cint-demo='1']").forEach(function(el){
       el.textContent=live
@@ -466,12 +529,12 @@ export function generateCodeIntelligenceRuntimeScript(): string {
     if(action==="load-self"){
       if(statusEl) statusEl.textContent="Loading CINT product pack (self)…";
       note("Loading standalone CINT product source into workspace…");
-      fetch(cintPath("github/publish-product"),{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({mode:"self_load"})})
+      fetch(cintPath("github/publish-product"),{method:"POST",headers:authHeaders(),body:JSON.stringify({mode:"self_load"})})
         .then(function(r){ return r.json().then(function(body){ return {http:r.status,body:body}; }); })
         .then(function(res){
           var body=res.body||{};
           if(!body||!body.ok){
-            var err=(body&&(body.error||body.detail))||("Load CINT product failed ("+res.http+")");
+            var err=authGateMessage(body,res.http,"load CINT product")||(body&&(body.error||body.detail||body.code))||("Load CINT product failed ("+res.http+")");
             if(statusEl) statusEl.textContent=err;
             note(err);
             return;
@@ -496,12 +559,12 @@ export function generateCodeIntelligenceRuntimeScript(): string {
       var wantedRepo=((repoInput&&repoInput.value)||"").trim();
       var publishBody={mode:"publish_github"};
       if(wantedRepo&&wantedRepo!=="owner/repo") publishBody.repoName=wantedRepo;
-      fetch(cintPath("github/publish-product"),{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(publishBody)})
+      fetch(cintPath("github/publish-product"),{method:"POST",headers:authHeaders(),body:JSON.stringify(publishBody)})
         .then(function(r){ return r.json().then(function(body){ return {http:r.status,body:body}; }); })
         .then(function(res){
           var body=res.body||{};
           if(!body||!body.ok){
-            var err=(body&&(body.error||body.detail||body.code))||("Publish CINT product failed ("+res.http+")");
+            var err=authGateMessage(body,res.http,"publish CINT product")||(body&&(body.error||body.detail||body.code))||("Publish CINT product failed ("+res.http+")");
             if(statusEl) statusEl.textContent=err;
             note(err);
             return;
@@ -524,12 +587,22 @@ export function generateCodeIntelligenceRuntimeScript(): string {
     if(action==="connect"){
       if(statusEl) statusEl.textContent="Connecting to GitHub…";
       note("Starting GitHub OAuth for project "+syncProjectId()+"…");
-      fetch(cintPath("github/connect"),{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({returnPath:hostReturnPath()})})
+      fetch(cintPath("github/connect"),{method:"POST",headers:authHeaders(),body:JSON.stringify({returnPath:hostReturnPath()})})
         .then(function(r){ return r.json().then(function(body){ return {http:r.status,body:body}; }); })
         .then(function(res){
           var body=res.body||{};
+          if(!body.redirectUrl && (res.http>=400 || body.ok===false)){
+            var needAuth=authGateMessage(body,res.http,"Connect GitHub")||(body&&body.error)||("GitHub connect failed ("+res.http+")");
+            if(statusEl) statusEl.textContent=needAuth;
+            note(needAuth);
+            return;
+          }
           if(body&&body.redirectUrl){
-            if(statusEl) statusEl.textContent="Redirecting to GitHub…";
+            if(statusEl){
+              statusEl.textContent=body.redirectUri
+                ?("Redirecting to GitHub… (callback must match: "+body.redirectUri+")")
+                :"Redirecting to GitHub…";
+            }
             var url=body.redirectUrl;
             var navigated=false;
             try{ if(window.open(url,"_top")) navigated=true; }catch(eOpen){}
@@ -562,9 +635,12 @@ export function generateCodeIntelligenceRuntimeScript(): string {
     }
     if(action==="repos"){
       if(statusEl) statusEl.textContent="Listing GitHub repos…";
-      fetch(cintPath("github/repos")).then(function(r){ return r.json(); }).then(function(body){
-        if(!body||!body.ok){
-          var err=(body&&body.error)||"List repos failed — connect GitHub first";
+      fetch(cintPath("github/repos"),{headers:authHeaders()}).then(function(r){
+        return r.json().then(function(body){ return {http:r.status,body:body||{}}; });
+      }).then(function(res){
+        var body=res.body||{};
+        if(!body.ok){
+          var err=authGateMessage(body,res.http,"list repos")||body.error||"List repos failed — connect GitHub first";
           if(statusEl) statusEl.textContent=err;
           note(err);
           return;
@@ -594,12 +670,12 @@ export function generateCodeIntelligenceRuntimeScript(): string {
       }
       if(statusEl) statusEl.textContent="Syncing "+fullName+"…";
       note("Syncing "+fullName+"…");
-      fetch(cintPath("github/sync"),{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({fullName:fullName})})
+      fetch(cintPath("github/sync"),{method:"POST",headers:authHeaders(),body:JSON.stringify({fullName:fullName})})
         .then(function(r){ return r.json().then(function(body){ return {http:r.status,body:body}; }); })
         .then(function(res){
           var body=res.body||{};
           if(!body||!body.ok){
-            var err=(body&&(body.error||body.detail))||("Sync failed ("+res.http+")");
+            var err=authGateMessage(body,res.http,"sync")||(body&&(body.error||body.detail))||("Sync failed ("+res.http+")");
             if(statusEl) statusEl.textContent=err;
             note(err);
             return;
@@ -668,7 +744,7 @@ export function generateCodeIntelligenceRuntimeScript(): string {
     var abortTimer=controller?setTimeout(function(){ try{ controller.abort(); }catch(e){} }, timeoutMs):null;
     fetch(cintPath(endpoint),{
       method:"POST",
-      headers:{"Content-Type":"application/json"},
+      headers:authHeaders(),
       body:JSON.stringify({repository:runRepo,persist:true}),
       signal:controller?controller.signal:undefined
     }).then(function(r){ return r.json().then(function(body){ return {http:r.status,body:body}; }); }).then(function(res){
@@ -678,7 +754,7 @@ export function generateCodeIntelligenceRuntimeScript(): string {
       var body=res.body||{};
       var elapsed=Date.now()-startedMs;
       if(!body||!body.ok){
-        var err=(body&&body.error)||("Live run failed ("+res.http+") — sync GitHub repo first");
+        var err=authGateMessage(body,res.http,"run live analysis")||(body&&body.error)||("Live run failed ("+res.http+") — sync GitHub repo first");
         if(statusLive) statusLive.textContent=err+" · "+elapsed+"ms";
         note(err);
         try{ if(hasSession()) showView("overview"); }catch(e2){}
@@ -835,10 +911,12 @@ export function generateCodeIntelligenceRuntimeScript(): string {
     n.unshift({id:"N-"+Date.now(), title:title, at:new Date().toISOString()});
     write("notifications", n);
     try{
+      ensureShellDocks();
       document.querySelectorAll("[data-cint-notes-list]").forEach(function(el){
         el.innerHTML=n.slice(0,8).map(function(x){ return "<p><strong>"+x.title+"</strong> <span class=\\"cint-chip\\">"+x.at+"</span></p>"; }).join("")||"<p>No notifications.</p>";
       });
-      document.querySelectorAll("[data-cint-notes]").forEach(function(el){ el.hidden=false; el.removeAttribute("hidden"); });
+      var notesDock=document.querySelector("[data-cint-notes][data-cint-shell-dock], [data-cint-notes]");
+      if(notesDock) setDockOpen(notesDock, true);
       document.querySelectorAll("[data-cint-ihs-log]").forEach(function(el){ el.textContent=title; });
     }catch(e){}
   }
@@ -998,6 +1076,15 @@ export function generateCodeIntelligenceRuntimeScript(): string {
   }
   function paintChrome(){
     syncShellLayout();
+    ensureShellDocks();
+    // Release any legacy modal dialog lock left by older runtimes.
+    try{
+      document.querySelectorAll("dialog[data-cint-finding-drawer]").forEach(function(d){
+        try{ if(typeof d.close==="function") d.close(); }catch(e){}
+        d.hidden=true;
+        d.setAttribute("hidden","");
+      });
+    }catch(e){}
     var r=repo();
     var meta=(read("repos", {})[r])||{};
     var an=(read("analysis", {})[r])||{};
@@ -1034,6 +1121,7 @@ export function generateCodeIntelligenceRuntimeScript(): string {
     else if(an.partial) status += " · partial results";
     else if(an.stale) status += " · stale vs commit";
     else if(an.current) status += " · current · "+(an.at||"");
+    else if(live && !an.state) status += " · synced — click Run live analysis";
     document.querySelectorAll("[data-cint-analysis-status]").forEach(function(el){ el.textContent=status; });
     document.querySelectorAll("[data-cint-assistant-context]").forEach(function(el){
       el.textContent=(live?"Live context for ":"Demo knowledge for ")+r+" @ "+(meta.commit||"?")+(live?".":". Not a live investigation.");
@@ -1186,9 +1274,10 @@ export function generateCodeIntelligenceRuntimeScript(): string {
   function paintRest(){
     var r=repo();
     var repos=read("repos", {});
+    var repoMeta=(repos[r])||{};
     var repoHtml=Object.keys(repos).map(function(id){
-      var m=repos[id];
-      return "<tr><td><button type=\\"button\\" class=\\"app-btn\\" data-cint-pick-repo=\\""+id+"\\">"+id+"</button></td><td>"+m.stack+"</td><td>"+m.branch+"</td><td>"+m.commit+"</td><td>"+m.access+"</td><td>"+m.analysis+"</td></tr>";
+      var m=repos[id]||{};
+      return "<tr><td><button type=\\"button\\" class=\\"app-btn\\" data-cint-pick-repo=\\""+id+"\\">"+id+"</button></td><td>"+(m.stack||"—")+"</td><td>"+(m.branch||"—")+"</td><td>"+(m.commit||"—")+"</td><td>"+(m.access||"—")+"</td><td>"+(m.analysis||"—")+"</td></tr>";
     }).join("");
     document.querySelectorAll("[data-cint-repo-rows]").forEach(function(el){ el.innerHTML=repoHtml; });
     var prof=(read("profiles", {})[r])||null;
@@ -1280,9 +1369,10 @@ export function generateCodeIntelligenceRuntimeScript(): string {
     document.querySelectorAll("[data-cint-suggest-row]").forEach(function(row){
       var open=findings().filter(function(f){ return f.lifecycle!=="RESOLVED"; })[0];
       var dep=read("deps", []).filter(function(d){ return d.repo===r; })[0];
+      var commitLabel=repoMeta.commit||"HEAD";
       var q1=open
         ? ("Why is finding "+(open.id||"")+" ("+(open.title||"issue")+") raised for this commit?")
-        : ("Summarize the top findings for "+r+" at commit "+(meta.commit||"HEAD")+".");
+        : ("Summarize the top findings for "+r+" at commit "+commitLabel+".");
       var q2=dep
         ? ("What depends on "+dep.name+" in the live dependency inventory?")
         : ("Which direct dependencies look most important in the live inventory for "+r+"?");
@@ -1378,9 +1468,10 @@ export function generateCodeIntelligenceRuntimeScript(): string {
   function isOrgAdminSession(){
     return sessionRole()==="Admin";
   }
-  function adminStatus(msg){
+  function adminStatus(msg, opts){
     document.querySelectorAll("[data-cint-admin-status]").forEach(function(el){ el.textContent=msg||""; });
-    if(msg) note(msg);
+    // Routine poll text must not open Notifications — that spam-froze Live preview chrome.
+    if(msg && opts && opts.notify) note(msg);
   }
   function roleSelectHtml(current){
     var roles=["Admin","Architect","Security Analyst","Viewer"];
@@ -1395,7 +1486,14 @@ export function generateCodeIntelligenceRuntimeScript(): string {
       }).join("") || '<tr><td colspan="4">No IdP members loaded.</td></tr>';
     });
   }
-  function loadAdminDirectory(){
+  var adminDirInflight=false;
+  var adminDirLoadedAt=0;
+  function adminPanelVisible(){
+    return !!document.querySelector(
+      '.app-main [data-view="admin"]:not([hidden]),.app-main [data-cint-page="admin"]:not([hidden]),[data-view="admin"]:not([hidden])'
+    );
+  }
+  function loadAdminDirectory(force){
     var sess=readSession();
     document.querySelectorAll("[data-cint-admin-bootstrap-wrap]").forEach(function(el){ el.hidden=true; });
     document.querySelectorAll("[data-cint-admin-access]").forEach(function(el){
@@ -1408,10 +1506,15 @@ export function generateCodeIntelligenceRuntimeScript(): string {
       adminStatus("Sign in with IdP to manage Admin members.");
       return;
     }
+    if(!force && adminDirInflight) return;
+    if(!force && adminDirLoadedAt && (Date.now()-adminDirLoadedAt)<12000) return;
+    adminDirInflight=true;
     adminStatus("Loading members…");
     fetch(cintPath("admin"),{method:"GET",headers:authHeaders()}).then(function(r){
       return r.json().then(function(body){ return {status:r.status, body:body}; });
     }).then(function(res){
+      adminDirInflight=false;
+      adminDirLoadedAt=Date.now();
       var body=res.body||{};
       var boot=!!body.canBootstrap;
       document.querySelectorAll("[data-cint-admin-bootstrap-wrap]").forEach(function(el){ el.hidden=!boot; });
@@ -1422,7 +1525,7 @@ export function generateCodeIntelligenceRuntimeScript(): string {
       }
       if(!body.ok){
         paintAdminMembersLocalFallback();
-        adminStatus(body.error||("Admin API "+res.status));
+        adminStatus(body.error||("Admin API "+res.status), {notify:true});
         return;
       }
       var members=body.members||[];
@@ -1440,12 +1543,14 @@ export function generateCodeIntelligenceRuntimeScript(): string {
       });
       adminStatus(isOrgAdminSession()?"Members loaded.":(boot?"Bootstrap available — claim first Admin.":"Read-only (need Admin)."));
     }).catch(function(err){
+      adminDirInflight=false;
       paintAdminMembersLocalFallback();
-      adminStatus("Admin network error"+(err&&err.message?(": "+err.message):""));
+      adminStatus("Admin network error"+(err&&err.message?(": "+err.message):""), {notify:true});
     });
   }
   function paintOrganisation(){
-    loadAdminDirectory();
+    // Admin directory fetch only while Admin is visible (or forced refresh) — never on every paint.
+    if(adminPanelVisible()) loadAdminDirectory(false);
     document.querySelectorAll("[data-cint-admin-roles]").forEach(function(el){
       if(!(el.textContent||"").trim()) el.textContent="Admin · Architect · Security Analyst · Viewer";
     });
@@ -1556,23 +1661,37 @@ export function generateCodeIntelligenceRuntimeScript(): string {
     });
     if(e.findingId) openFinding(e.findingId);
   }
-  // Per-page chrome() embeds a drawer inside each workspace panel. Opening the first
-  // match (often Overview while FI is visible) keeps <dialog> under display:none → 0×0 "frozen".
+  // Finding drawer is a non-modal <aside>. Never use <dialog showModal> — native modal
+  // backdrops leave the whole workspace inert (sidebar/topbar "frozen").
   function ensureFindingDrawer(){
-    var shell=productShell();
-    var host=shell||document.body;
+    var host=document.body;
     var drawers=document.querySelectorAll("[data-cint-finding-drawer]");
     var keeper=null;
     for(var i=0;i<drawers.length;i++){
-      if(drawers[i].open){ keeper=drawers[i]; break; }
+      if(!drawers[i].hidden && drawers[i].getAttribute("hidden")===null){ keeper=drawers[i]; break; }
     }
     if(!keeper && drawers.length) keeper=drawers[0];
     if(!keeper){
-      keeper=document.createElement("dialog");
+      keeper=document.createElement("aside");
       keeper.setAttribute("data-cint-finding-drawer","");
+      keeper.setAttribute("role","dialog");
+      keeper.setAttribute("aria-modal","false");
       keeper.className="cint-drawer";
       keeper.hidden=true;
       keeper.innerHTML='<button type="button" class="app-btn" data-cint-close-drawer>Close</button><div data-cint-finding-detail></div>';
+    }
+    // Migrate legacy <dialog> to <aside> so showModal cannot reappear.
+    if(keeper.tagName==="DIALOG"){
+      var migrated=document.createElement("aside");
+      migrated.setAttribute("data-cint-finding-drawer","");
+      migrated.setAttribute("role","dialog");
+      migrated.setAttribute("aria-modal","false");
+      migrated.className=keeper.className||"cint-drawer";
+      migrated.hidden=true;
+      migrated.innerHTML=keeper.innerHTML||'<button type="button" class="app-btn" data-cint-close-drawer>Close</button><div data-cint-finding-detail></div>';
+      try{ if(typeof keeper.close==="function") keeper.close(); }catch(e){}
+      try{ if(keeper.parentNode) keeper.parentNode.removeChild(keeper); }catch(e2){}
+      keeper=migrated;
     }
     if(keeper.parentElement!==host){
       try{ host.appendChild(keeper); }catch(e){}
@@ -1595,6 +1714,7 @@ export function generateCodeIntelligenceRuntimeScript(): string {
     drawer.hidden=false;
     drawer.removeAttribute("hidden");
     try{
+      drawer.style.setProperty("display","block","important");
       drawer.style.setProperty("width","min(26rem, 100vw)","important");
       drawer.style.setProperty("height","100vh","important");
       drawer.style.setProperty("max-height","100vh","important");
@@ -1603,24 +1723,11 @@ export function generateCodeIntelligenceRuntimeScript(): string {
       drawer.style.setProperty("right","0","important");
       drawer.style.setProperty("left","auto","important");
       drawer.style.setProperty("z-index","9999","important");
+      drawer.style.setProperty("pointer-events","auto","important");
     }catch(e){}
-    // <dialog> stays display:none until show/showModal — removing [hidden] alone looks "frozen".
-    // On Remediation, prefer non-modal show() so Approve/Reject stay clickable (no backdrop lock).
-    var remVisible=!!document.querySelector(
-      '.app-main [data-view="remediation"]:not([hidden]),.app-main [data-cint-page="remediation"]:not([hidden]),[data-view="remediation"]:not([hidden])'
-    );
-    try{
-      if(typeof drawer.showModal==="function" && !remVisible){
-        if(!drawer.open) drawer.showModal();
-      } else if(typeof drawer.show==="function"){
-        if(!drawer.open) drawer.show();
-        else drawer.setAttribute("open","");
-      } else {
-        drawer.setAttribute("open","");
-      }
-    }catch(e){
-      try{ if(typeof drawer.show==="function") drawer.show(); else drawer.setAttribute("open",""); }catch(e2){}
-    }
+    // Never call showModal — it inerts the document behind an invisible backdrop.
+    try{ if(typeof drawer.close==="function" && drawer.open) drawer.close(); }catch(e){}
+    try{ drawer.removeAttribute("open"); }catch(e2){}
   }
   function closeFindingDrawer(drawer){
     var list=drawer
@@ -1632,8 +1739,68 @@ export function generateCodeIntelligenceRuntimeScript(): string {
       try{ d.removeAttribute("open"); }catch(e2){}
       d.hidden=true;
       d.setAttribute("hidden","");
-      try{ d.style.removeProperty("display"); }catch(e3){}
+      try{ d.style.setProperty("display","none","important"); }catch(e3){}
     });
+  }
+  function setDockOpen(el, open){
+    if(!el) return;
+    if(open){
+      el.hidden=false;
+      el.removeAttribute("hidden");
+      try{ el.style.setProperty("display","block","important"); el.style.setProperty("pointer-events","auto","important"); }catch(e){}
+    } else {
+      el.hidden=true;
+      el.setAttribute("hidden","");
+      try{ el.style.setProperty("display","none","important"); }catch(e2){}
+    }
+  }
+  function ensureShellDocks(){
+    var host=document.body;
+    function keepOne(selector, html){
+      var nodes=document.querySelectorAll(selector);
+      var keeper=null;
+      for(var i=0;i<nodes.length;i++){
+        if(nodes[i].getAttribute("data-cint-shell-dock")){ keeper=nodes[i]; break; }
+      }
+      if(!keeper && nodes.length) keeper=nodes[0];
+      if(!keeper){
+        var wrap=document.createElement("div");
+        wrap.innerHTML=html;
+        keeper=wrap.firstElementChild;
+        if(keeper) host.appendChild(keeper);
+      } else if(keeper.parentElement!==host){
+        try{ host.appendChild(keeper); }catch(e){}
+      }
+      if(keeper){
+        keeper.setAttribute("data-cint-shell-dock", selector.indexOf("notes")>=0?"notes":"assistant");
+        nodes=document.querySelectorAll(selector);
+        for(var j=0;j<nodes.length;j++){
+          if(nodes[j]===keeper) continue;
+          try{ if(nodes[j].parentNode) nodes[j].parentNode.removeChild(nodes[j]); }catch(e2){}
+        }
+      }
+      return keeper;
+    }
+    var notes=keepOne("[data-cint-notes]", '<aside data-cint-notes data-cint-shell-dock="notes" class="cint-state" hidden><h3>Notifications</h3><div data-cint-notes-list></div></aside>');
+    var assist=keepOne("[data-cint-assistant-dock]", '<aside data-cint-assistant-dock data-cint-shell-dock="assistant" class="cint-state" hidden><h3>Contextual assistant</h3><p data-cint-assistant-context></p><form data-cint-form="assistant"><input name="q" placeholder="Ask about this repo" required /><button class="app-btn" type="submit">Ask</button></form><div data-cint-thread></div></aside>');
+    return {notes:notes, assist:assist};
+  }
+  function toggleShellDock(kind){
+    var docks=ensureShellDocks();
+    var target=kind==="assistant"?docks.assist:docks.notes;
+    var other=kind==="assistant"?docks.notes:docks.assist;
+    if(!target) return;
+    var closed=!!(target.hidden || target.getAttribute("hidden")!==null || (target.style && target.style.display==="none"));
+    setDockOpen(target, closed);
+    if(closed) setDockOpen(other, false);
+  }
+  /** Clicks on button/label text are Text nodes — they have no .closest and look like a frozen UI. */
+  function eventEl(ev){
+    var t=ev && ev.target;
+    if(!t) return null;
+    if(t.nodeType===3) t=t.parentElement;
+    if(t && t.nodeType!==1) t=t.parentElement;
+    return t && t.closest ? t : null;
   }
   function remediationStatus(msg){
     document.querySelectorAll("[data-cint-remediation-status]").forEach(function(el){
@@ -1733,7 +1900,13 @@ export function generateCodeIntelligenceRuntimeScript(): string {
     if(sel) sel.value=f.lifecycle;
     openFindingDrawer(drawer);
   }
-  function paint(){ paintChrome(); paintFindings(); paintRest(); paintOrganisation(); }
+  function paint(){
+    // Isolate paint stages — one ReferenceError must not freeze Sync/Ask/Findings/Analyze.
+    try{ paintChrome(); }catch(eChrome){ try{ console.error("cint paintChrome", eChrome); }catch(e0){} }
+    try{ paintFindings(); }catch(eFind){ try{ console.error("cint paintFindings", eFind); }catch(e1){} }
+    try{ paintRest(); }catch(eRest){ try{ console.error("cint paintRest", eRest); }catch(e2){} }
+    try{ paintOrganisation(); }catch(eOrg){ try{ console.error("cint paintOrganisation", eOrg); }catch(e3){} }
+  }
   function productShell(){ return document.querySelector("[data-cint-app-shell]"); }
   // In-memory backup — preview iframes / private mode can reject sessionStorage writes,
   // which previously made showView("overview") bounce to Login while still returning true.
@@ -1980,10 +2153,48 @@ export function generateCodeIntelligenceRuntimeScript(): string {
   window.__replicaCintShowView=showView;
   window.__replicaCintOpenFinding=openFinding;
   boot();
-  try{ ensureFindingDrawer(); }catch(e){}
+  try{ ensureFindingDrawer(); ensureShellDocks(); closeFindingDrawer(); }catch(e){}
   document.addEventListener("click", function(ev){
-    var t=ev.target;
-    if(!t || !t.closest) return;
+    var t=eventEl(ev);
+    if(!t) return;
+    // Chrome actions on capture — same plane as nav (text-node safe, not bubble-starved).
+    if(t.closest("[data-cint-open-notes]")){
+      ev.preventDefault();
+      if(ev.stopImmediatePropagation) ev.stopImmediatePropagation();
+      else if(ev.stopPropagation) ev.stopPropagation();
+      toggleShellDock("notes");
+      return;
+    }
+    if(t.closest("[data-cint-open-assistant]")){
+      ev.preventDefault();
+      if(ev.stopImmediatePropagation) ev.stopImmediatePropagation();
+      else if(ev.stopPropagation) ev.stopPropagation();
+      toggleShellDock("assistant");
+      return;
+    }
+    if(t.closest("[data-cint-sidebar-toggle]")){
+      ev.preventDefault();
+      if(ev.stopImmediatePropagation) ev.stopImmediatePropagation();
+      else if(ev.stopPropagation) ev.stopPropagation();
+      var shellToggle=t.closest("[data-cint-app-shell]")||document.querySelector("[data-cint-app-shell]");
+      if(shellToggle){
+        var nextMode=shellToggle.getAttribute("data-cint-sidebar")==="collapsed"?"expanded":"collapsed";
+        applySidebarMode(nextMode);
+      }
+      return;
+    }
+    if(t.closest("[data-cint-signout]")){
+      ev.preventDefault();
+      if(ev.stopImmediatePropagation) ev.stopImmediatePropagation();
+      else if(ev.stopPropagation) ev.stopPropagation();
+      var priorOut=readSession();
+      fetch(cintPath("auth"),{method:"POST",headers:authHeaders(),body:JSON.stringify({action:"logout"})}).catch(function(){});
+      clearSession();
+      setAuthed(false);
+      audit((priorOut&&priorOut.authMode==="idp"?"idp":"demo")+" sign-out");
+      showGatewayEntry();
+      return;
+    }
     var mkt=t.closest("[data-cint-mkt-scroll]");
     if(mkt && productShell()){
       var sid=mkt.getAttribute("data-cint-mkt-scroll");
@@ -2086,10 +2297,10 @@ export function generateCodeIntelligenceRuntimeScript(): string {
     }
   });
   document.addEventListener("click", function(ev){
-    var t=ev.target;
-    if(!t || !t.closest) return;
-    // Nav owned by capture listener — skip duplicate showView here.
-    if(t.closest("[data-view-nav],[data-cint-route]")) return;
+    var t=eventEl(ev);
+    if(!t) return;
+    // Nav + chrome (notes/assistant/toggle/signout) owned by capture listener.
+    if(t.closest("[data-view-nav],[data-cint-route],[data-cint-open-notes],[data-cint-open-assistant],[data-cint-sidebar-toggle],[data-cint-signout]")) return;
     var open=t.closest("[data-cint-open-finding]");
     if(open){
       ev.preventDefault();
@@ -2114,12 +2325,12 @@ export function generateCodeIntelligenceRuntimeScript(): string {
     }
     if(t.closest("[data-cint-admin-refresh]")){
       ev.preventDefault();
-      loadAdminDirectory();
+      loadAdminDirectory(true);
       return;
     }
     if(t.closest("[data-cint-admin-bootstrap]")){
       ev.preventDefault();
-      adminStatus("Claiming workspace Admin…");
+      adminStatus("Claiming workspace Admin…", {notify:true});
       fetch(cintPath("admin"),{
         method:"POST",
         headers:authHeaders(),
@@ -2127,10 +2338,10 @@ export function generateCodeIntelligenceRuntimeScript(): string {
       }).then(function(r){ return r.json().then(function(body){ return {status:r.status, body:body}; }); }).then(function(res){
         var body=res.body||{};
         if(!body.ok){
-          adminStatus(body.error||("Bootstrap failed ("+res.status+")"));
+          adminStatus(body.error||("Bootstrap failed ("+res.status+")"), {notify:true});
           return;
         }
-        adminStatus(body.message||"You are Admin — sign out and sign in again.");
+        adminStatus(body.message||"You are Admin — sign out and sign in again.", {notify:true});
         var sess=readSession();
         if(sess){
           sess.role="Admin";
@@ -2138,7 +2349,7 @@ export function generateCodeIntelligenceRuntimeScript(): string {
         }
         paint();
       }).catch(function(err){
-        adminStatus("Bootstrap network error"+(err&&err.message?(": "+err.message):""));
+        adminStatus("Bootstrap network error"+(err&&err.message?(": "+err.message):""), {notify:true});
       });
       return;
     }
@@ -2157,19 +2368,19 @@ export function generateCodeIntelligenceRuntimeScript(): string {
       }).then(function(r){ return r.json().then(function(body){ return {status:r.status, body:body}; }); }).then(function(res){
         var body=res.body||{};
         if(!body.ok){
-          adminStatus(body.error||("Promote failed ("+res.status+")"));
+          adminStatus(body.error||("Promote failed ("+res.status+")"), {notify:true});
           return;
         }
-        adminStatus(body.message||"Role updated.");
+        adminStatus(body.message||"Role updated.", {notify:true});
         var sess=readSession();
         if(sess&&body.member&&body.member.userId===sess.userId){
           sess.role=body.member.role;
           writeSession(sess);
         }
-        loadAdminDirectory();
+        loadAdminDirectory(true);
         paintChrome();
       }).catch(function(err){
-        adminStatus("Promote network error"+(err&&err.message?(": "+err.message):""));
+        adminStatus("Promote network error"+(err&&err.message?(": "+err.message):""), {notify:true});
       });
       return;
     }
@@ -2178,12 +2389,6 @@ export function generateCodeIntelligenceRuntimeScript(): string {
     }
     var pick=t.closest("[data-cint-pick-repo]");
     if(pick){ write("activeRepo", pick.getAttribute("data-cint-pick-repo")); paint(); }
-    if(t.closest("[data-cint-open-notes]")){
-      document.querySelectorAll("[data-cint-notes]").forEach(function(el){ el.hidden=!el.hidden; });
-    }
-    if(t.closest("[data-cint-open-assistant]")){
-      document.querySelectorAll("[data-cint-assistant-dock]").forEach(function(el){ el.hidden=!el.hidden; });
-    }
     var reset=t.closest("[data-cint-reset-filters]");
     if(reset){
       document.querySelectorAll("[data-cint-finding-cat],[data-cint-finding-life],[data-cint-sec-cat],[data-cint-sec-sev],[data-cint-dep-kind],[data-cint-quality-cat],[data-cint-arch-filter],[data-cint-evidence-slot],[data-cint-evidence-kind]").forEach(function(s){ s.value="all"; });
@@ -2338,22 +2543,6 @@ export function generateCodeIntelligenceRuntimeScript(): string {
       paintIntegrationHosts();
       document.querySelectorAll("[data-cint-ihs-log]").forEach(function(el){ el.textContent="Share request recorded — ACL connector deferred."; });
     }
-    if(t.closest("[data-cint-sidebar-toggle]")){
-      ev.preventDefault();
-      var shell=t.closest("[data-cint-app-shell],[data-cint-shell]");
-      if(shell && !shell.hasAttribute("data-cint-auth")){
-        var next=shell.getAttribute("data-cint-sidebar")==="collapsed"?"expanded":"collapsed";
-        applySidebarMode(next);
-      }
-    }
-    if(t.closest("[data-cint-signout]")){
-      var prior=readSession();
-      fetch(cintPath("auth"),{method:"POST",headers:authHeaders(),body:JSON.stringify({action:"logout"})}).catch(function(){});
-      clearSession();
-      setAuthed(false);
-      audit((prior&&prior.authMode==="idp"?"idp":"demo")+" sign-out");
-      showGatewayEntry();
-    }
     var remContact=t.closest("[data-cint-contact-remove]");
     if(remContact){
       var rid=remContact.getAttribute("data-cint-contact-remove");
@@ -2431,7 +2620,10 @@ export function generateCodeIntelligenceRuntimeScript(): string {
       syncProjectId();
       var forgotUrl=cintPath("auth");
       var redirectTo="";
-      try{ redirectTo=String(window.location.href||"").split("#")[0]||""; }catch(e){}
+      try{
+        if(window.top&&window.top.location) redirectTo=String(window.top.location.href||"").split("#")[0]||"";
+        if(!/^https?:/i.test(redirectTo)) redirectTo="";
+      }catch(e){}
       setAuthStatus(form, "Sending reset link… · "+forgotUrl, "busy");
       setAuthBusy(forgotBtn, true, "forgot");
       var forgotCtrl=typeof AbortController!=="undefined"?new AbortController():null;
@@ -2444,11 +2636,14 @@ export function generateCodeIntelligenceRuntimeScript(): string {
       }).then(function(r){
         return r.text().then(function(txt){
           var body={};
-          try{ body=txt?JSON.parse(txt):{}; }catch(e){ body={ ok:false, error:"Auth API returned non-JSON ("+r.status+")" }; }
-          return {status:r.status, body:body};
-        });
-      }).then(function(res){
-        if(forgotTimer) clearTimeout(forgotTimer);
+        try{ body=txt?JSON.parse(txt):{}; }catch(e){
+          var snip=(txt||"").replace(/\\s+/g," ").slice(0,80);
+          body={ ok:false, error:"Auth API returned non-JSON ("+r.status+")"+(snip?(" · "+snip):"") };
+        }
+        return {status:r.status, body:body};
+      });
+    }).then(function(res){
+      if(forgotTimer) clearTimeout(forgotTimer);
         var body=res.body||{};
         if(body.ok){
           setAuthStatus(form, body.message||"Reset email sent — check inbox, then sign in", "ok");
@@ -2514,18 +2709,8 @@ export function generateCodeIntelligenceRuntimeScript(): string {
       setAuthBusy(submitBtn, false);
     }
     function demoFallback(reason){
-      var at=Date.now();
-      finishAuthed({
-        authed:true,
-        authMode:"demo",
-        demo:true,
-        at:at,
-        expiresAt:at+(1000*60*60*24),
-        userId:"demo:"+(email||"anonymous").toLowerCase(),
-        email:(email||"demo@eng-platform.local").toLowerCase(),
-        displayName:displayName||"Demo Engineer",
-        role:"Admin"
-      }, "Demo sign-in"+(reason?(" ("+reason+")"):""));
+      setAuthStatus(form, "Code Intelligence IdP is required"+(reason?(" — "+reason):"")+". Set CINT_SUPABASE_* and sign in — demo Admin is disabled.", "error");
+      setAuthBusy(submitBtn, false);
     }
     if(!email||!password){
       setAuthStatus(form, "Email and password required", "error");
@@ -2553,7 +2738,10 @@ export function generateCodeIntelligenceRuntimeScript(): string {
     }).then(function(r){
       return r.text().then(function(txt){
         var body={};
-        try{ body=txt?JSON.parse(txt):{}; }catch(e){ body={ ok:false, error:"Auth API returned non-JSON ("+r.status+")" }; }
+        try{ body=txt?JSON.parse(txt):{}; }catch(e){
+          var snip2=(txt||"").replace(/\\s+/g," ").slice(0,80);
+          body={ ok:false, error:"Auth API returned non-JSON ("+r.status+")"+(snip2?(" · "+snip2):"") };
+        }
         return {status:r.status, body:body};
       });
     }).then(function(res){
@@ -2611,8 +2799,8 @@ export function generateCodeIntelligenceRuntimeScript(): string {
     });
   })();
   document.addEventListener("click", function(ev){
-    var t=ev.target;
-    if(!t || !t.closest) return;
+    var t=eventEl(ev);
+    if(!t) return;
     var authBtn=t.closest("[data-cint-auth-submit],form[data-cint-form='login'] button, form[data-cint-form='signup'] button, form[data-cint-form='forgot'] button, form[data-cint-auth-action] button");
     if(!authBtn || authBtn.tagName!=="BUTTON") return;
     // Inline host-style bridge owns auth when present (same idea as loginPreHydrationScript).
@@ -2725,7 +2913,7 @@ export function generateCodeIntelligenceRuntimeScript(): string {
       }
       fetch(cintPath("assistant"),{
         method:"POST",
-        headers:{"Content-Type":"application/json"},
+        headers:authHeaders(),
         signal:controller ? controller.signal : undefined,
         body:JSON.stringify({
           question:q,
@@ -2832,7 +3020,7 @@ export function generateCodeIntelligenceRuntimeScript(): string {
       note("Importing "+provider+" "+source+"…");
       fetch(cintPath("import"),{
         method:"POST",
-        headers:{"Content-Type":"application/json"},
+        headers:authHeaders(),
         body:JSON.stringify({
           provider:provider,
           source:source,
@@ -2900,11 +3088,11 @@ export function generateCodeIntelligenceRuntimeScript(): string {
         fd.append("kind", ukind);
         fd.append("filename", fname);
         fd.append("file", file, fname);
-        uploadReq=fetch(cintPath("upload"),{method:"POST",body:fd});
+        uploadReq=fetch(cintPath("upload"),{method:"POST",headers:authBearerHeaders(),body:fd});
       } else {
         uploadReq=fetch(cintPath("upload"),{
           method:"POST",
-          headers:{"Content-Type":"application/json"},
+          headers:authHeaders(),
           body:JSON.stringify({kind:ukind,filename:fname})
         });
       }
@@ -3021,6 +3209,12 @@ export function mergeCodeIntelligenceRuntime(js: string | null | undefined, html
     raw.includes("function ensureRail") &&
     raw.includes("syncShellLayout") &&
     raw.includes("earlyWorkspaceRail") &&
+    raw.includes("function eventEl") &&
+    raw.includes("toggleShellDock") &&
+    raw.includes("repoMeta") &&
+    raw.includes("cint paintRest") &&
+    raw.includes("adminPanelVisible") &&
+    raw.includes("adminDirInflight") &&
     // B1 IdP: refuse fast-path on pre-1.45 runtimes (nested auth URL or demo-only forgot).
     raw.includes('action:"login"') &&
     raw.includes('action:"forgot"') &&

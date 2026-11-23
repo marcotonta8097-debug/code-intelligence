@@ -118,23 +118,27 @@ export const Route = createFileRoute("/api/projects/$projectId/cint/remediation/
             commitMessage: title.slice(0, 72),
           });
 
-          const record = await cintEntityStore.create("remediation", {
-            findingId: body.findingId || "authorized",
-            proposal: body.proposal || title,
-            risk: "HIGH",
-            approvalLevel: "L4",
-            humanApprovalId: "human_operator",
-            executionStatus: "applied",
-            writesSource: true,
-            recoverySnapshotId: body.recoverySnapshotId,
-            appliedAt: new Date().toISOString(),
-            agentId: "remediation_engineer",
-            prUrl: pr.prUrl,
-            prNumber: pr.prNumber,
-            branch: pr.branch,
-            commitSha: pr.commitSha,
-            repository: fullName,
-          });
+          const record = await cintEntityStore.create(
+            "remediation",
+            {
+              findingId: body.findingId || "authorized",
+              proposal: body.proposal || title,
+              risk: "HIGH",
+              approvalLevel: "L4",
+              humanApprovalId: "human_operator",
+              executionStatus: "applied",
+              writesSource: true,
+              recoverySnapshotId: body.recoverySnapshotId,
+              appliedAt: new Date().toISOString(),
+              agentId: "remediation_engineer",
+              prUrl: pr.prUrl,
+              prNumber: pr.prNumber,
+              branch: pr.branch,
+              commitSha: pr.commitSha,
+              repository: fullName,
+            },
+            projectId,
+          );
 
           return Response.json({
             ok: true,

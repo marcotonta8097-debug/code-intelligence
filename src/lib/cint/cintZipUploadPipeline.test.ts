@@ -23,7 +23,7 @@ describe("ingestZipUploadBytes", () => {
     expect(result.upload.status).toBe("EXTRACTED");
     expect(result.liveIndex.provider).toBe("local_snapshot");
 
-    const repos = await cintEntityStore.list("repositories");
+    const repos = await cintEntityStore.list("repositories", projectId);
     expect(repos.some((r) => String(r.name || "").includes("zipdemo"))).toBe(true);
     expect(listCintUploads(projectId).some((u) => u.id === result.upload.id)).toBe(true);
   });

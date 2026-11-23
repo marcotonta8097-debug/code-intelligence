@@ -50,18 +50,22 @@ describe("cintIngressEgressPipeline", () => {
     expect(extracted.liveIndex.provider).toBe("local_snapshot");
     expect(extracted.liveIndex.synced).toBe(true);
 
-    const repos = await cintEntityStore.list("repositories");
+    const repos = await cintEntityStore.list("repositories", projectId);
     expect(repos.some((r) => String(r.name || r.id).includes("payments-api"))).toBe(true);
 
-    await cintEntityStore.create("findings", {
-      id: `finding_${projectId}`,
-      title: "Pipeline proof finding",
-      severity: "high",
-      status: "open",
-      confidence: "high",
-      repository_id: extracted.repository,
-      location: "cmd/api/server.go",
-    });
+    await cintEntityStore.create(
+      "findings",
+      {
+        id: `finding_${projectId}`,
+        title: "Pipeline proof finding",
+        severity: "high",
+        status: "open",
+        confidence: "high",
+        repository_id: extracted.repository,
+        location: "cmd/api/server.go",
+      },
+      projectId,
+    );
 
     const upload = registerCintUpload({
       projectId,

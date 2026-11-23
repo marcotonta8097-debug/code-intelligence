@@ -140,7 +140,9 @@ body > section:has(> [data-cint-activity]),
 .app-shell[data-cint-app-shell="1"] > .app-main > [data-view]{max-width:100%!important;min-width:0!important;box-sizing:border-box!important;overflow-x:hidden!important}
 [data-cint-page-body] > [data-cint-integration-host]:last-child{margin-bottom:0.5rem}
 [data-cint-shell] .cint-trust{margin:0;padding:.35rem 0 0;border:0;color:var(--cint-muted);font-size:11px;max-width:72rem}
-[data-cint-shell] .cint-chip{display:inline-flex;align-items:center;gap:.3rem;padding:.18rem .5rem;border:1px solid #d3dde8;border-radius:999px;font-size:11px;background:#eef4f8;color:#355066}
+[data-cint-shell] .cint-chip{display:inline-flex;align-items:center;gap:.3rem;padding:.18rem .5rem;border:1px solid #d3dde8;border-radius:999px;font-size:11px;background:#eef4f8;color:#355066;cursor:default;user-select:none;pointer-events:none}
+.app-shell[data-cint-app-shell="1"] [data-cint-status-chip],[data-cint-shell] [data-cint-status-chip],.app-shell[data-cint-app-shell="1"] [data-cint-freshness],.app-shell[data-cint-app-shell="1"] [data-cint-source],.app-shell[data-cint-app-shell="1"] [data-cint-trust="mode"]{cursor:default!important;user-select:none!important;pointer-events:none!important}
+.app-shell[data-cint-app-shell="1"] [data-cint-live="1"],[data-cint-shell] [data-cint-live="1"]{border-color:#0f766e!important;background:#ecfdf5!important;color:#0f766e!important;font-weight:600!important}
 [data-cint-shell] .cint-kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(10.5rem,1fr));gap:.7rem;margin:0 0 1.1rem}
 [data-cint-shell] .cint-kpi{padding:.75rem .85rem;border:1px solid var(--cint-line);border-radius:.7rem;background:#fff;box-shadow:0 8px 20px rgba(15,27,45,.06)}
 [data-cint-shell] .cint-kpi b{display:block;margin-top:.2rem;font-size:1.15rem;color:var(--cint-teal);font-weight:700}
@@ -162,10 +164,20 @@ body > section:has(> [data-cint-activity]),
 [data-cint-shell] .cint-split{display:grid;gap:.9rem;grid-template-columns:minmax(0,1.2fr) minmax(0,.8fr);max-width:100%;min-width:0}
 [data-cint-shell] .cint-split > section,[data-cint-shell] pre,[data-cint-shell] [data-cint-graph],[data-cint-shell] [data-cint-thread],[data-cint-shell] [data-cint-audit],[data-cint-shell] [data-cint-activity],[data-cint-shell] [data-cint-recs]{background:var(--cint-panel);border:1px solid var(--cint-line);border-radius:.7rem;padding:.75rem}
 [data-cint-shell] pre{overflow:auto;font-size:12px;color:#24364d}
-[data-cint-shell] .cint-drawer,[data-cint-finding-drawer].cint-drawer,dialog[data-cint-finding-drawer]{position:fixed!important;right:0!important;top:0!important;left:auto!important;bottom:0!important;height:100vh!important;max-height:100vh!important;width:min(26rem,100vw)!important;max-width:100vw!important;min-width:16rem;background:#fff;color:#122033;border:0;border-left:1px solid var(--cint-line);padding:1.1rem;overflow:auto;z-index:9999!important;box-shadow:-16px 0 40px rgba(15,27,45,.18);box-sizing:border-box;margin:0}
-[data-cint-finding-drawer].cint-drawer::backdrop,dialog[data-cint-finding-drawer]::backdrop{background:rgba(15,27,45,.35)}
+/* Finding drawer is a non-modal panel — never <dialog showModal> (page-inert freeze). */
+[data-cint-shell] .cint-drawer,[data-cint-finding-drawer].cint-drawer,aside[data-cint-finding-drawer],dialog[data-cint-finding-drawer]{position:fixed!important;right:0!important;top:0!important;left:auto!important;bottom:0!important;height:100vh!important;max-height:100vh!important;width:min(26rem,100vw)!important;max-width:100vw!important;min-width:16rem;background:#fff;color:#122033;border:0;border-left:1px solid var(--cint-line);padding:1.1rem;overflow:auto;z-index:9999!important;box-shadow:-16px 0 40px rgba(15,27,45,.18);box-sizing:border-box;margin:0;pointer-events:auto!important}
+[data-cint-finding-drawer][hidden],aside[data-cint-finding-drawer][hidden],dialog[data-cint-finding-drawer][hidden]{display:none!important}
 /* Drawer must sit on shell/body — never under a [hidden] panel (0×0 dialog). */
-.app-shell[data-cint-app-shell="1"] > [data-cint-finding-drawer],body > [data-cint-finding-drawer]{position:fixed!important;z-index:9999!important}
+.app-shell[data-cint-app-shell="1"] > [data-cint-finding-drawer],body > [data-cint-finding-drawer]{position:fixed!important;z-index:9999!important;pointer-events:auto!important}
+/* One shell-owned notes/assistant dock — topbar toggles these, not per-page chrome copies. */
+.app-shell[data-cint-app-shell="1"] > [data-cint-notes],
+.app-shell[data-cint-app-shell="1"] > [data-cint-assistant-dock],
+body > [data-cint-notes][data-cint-shell-dock],
+body > [data-cint-assistant-dock][data-cint-shell-dock]{position:fixed!important;top:3.5rem!important;right:1rem!important;z-index:80!important;width:min(24rem,calc(100vw - 2rem))!important;max-height:min(70vh,32rem)!important;overflow:auto!important;margin:0!important;box-shadow:0 18px 40px rgba(15,27,45,.22)!important;pointer-events:auto!important}
+.app-shell[data-cint-app-shell="1"] > [data-cint-notes][hidden],
+.app-shell[data-cint-app-shell="1"] > [data-cint-assistant-dock][hidden],
+body > [data-cint-notes][data-cint-shell-dock][hidden],
+body > [data-cint-assistant-dock][data-cint-shell-dock][hidden]{display:none!important}
 [data-cint-finding-rows] .app-btn[data-cint-open-finding]{display:inline-block;max-width:14rem;white-space:normal;overflow-wrap:anywhere;word-break:break-word;text-align:left;line-height:1.25;vertical-align:top}
 [data-cint-shell] [hidden]{display:none !important}
 [data-cint-shell] .cint-state{padding:.75rem;border:1px dashed #c5d2e0;border-radius:.55rem;color:var(--cint-muted);margin:.5rem 0;background:#f8fafc}
@@ -334,7 +346,7 @@ html:has(.app-shell[data-cint-authed="1"]),
 body:has(.app-shell[data-cint-authed="1"]){background:#e8eef5!important}
 `;
 
-export const CINT_PAINT_CSS_MARK = "/* cint-workspace-paint-v33 */";
+export const CINT_PAINT_CSS_MARK = "/* cint-workspace-paint-v34 */";
 
 export function isCodeIntelligencePaintTarget(html: string | null | undefined): boolean {
   return /\bdata-cint-shell\b|\bdata-cint-app-shell\b|\bdata-cint-page\b|\bdata-product-surface=["']code_intelligence["']|\bengineering intelligence demo\b/i.test(
@@ -617,6 +629,8 @@ export function healCodeIntelligencePreviewHtml(
   next = hoistCodeIntelligenceGatewayPanels(next);
   // One shell-level drawer — per-page chrome drawers under [hidden] panels open at 0×0.
   next = hoistCodeIntelligenceFindingDrawer(next);
+  // One shell-level notes/assistant dock — topbar owns open buttons.
+  next = hoistCodeIntelligenceShellDocks(next);
   // Quarantine Activity/Recs that escaped Overview into main/body (footer bleed on every route).
   next = quarantineOrphanCodeIntelligenceActivitySections(next);
   const panelTagPattern = "<(section|div|article)\\b([^>]*\\bdata-view=[\"']([^\"']+)[\"'][^>]*)>";
@@ -1238,9 +1252,19 @@ function deepenHollowCodeIntelligenceWorkspacePanels(
 }
 
 const CINT_FINDING_DRAWER_HTML =
-  `<dialog data-cint-finding-drawer class="cint-drawer" hidden><button type="button" class="app-btn" data-cint-close-drawer>Close</button><div data-cint-finding-detail></div></dialog>`;
+  `<aside data-cint-finding-drawer class="cint-drawer" hidden role="dialog" aria-modal="false"><button type="button" class="app-btn" data-cint-close-drawer>Close</button><div data-cint-finding-detail></div></aside>`;
 
-/** Seat a single finding drawer on the app shell — never inside a [hidden] view panel. */
+const CINT_SHELL_DOCKS_HTML =
+  `<aside data-cint-notes data-cint-shell-dock="notes" class="cint-state" hidden><h3>Notifications</h3><div data-cint-notes-list></div></aside>
+<aside data-cint-assistant-dock data-cint-shell-dock="assistant" class="cint-state" hidden>
+  <h3>Contextual assistant</h3>
+  <p data-cint-assistant-context>Bound to the active repository and commit. Live Claude when CINT_ANTHROPIC_API_KEY is set.</p>
+  <form data-cint-form="assistant"><input name="q" placeholder="Ask about this repo" required />
+  <button class="app-btn" type="submit">Ask</button></form>
+  <div data-cint-thread></div>
+</aside>`;
+
+/** Seat a single non-modal finding drawer on the app shell — never inside a [hidden] view panel. */
 export function hoistCodeIntelligenceFindingDrawer(html: string): string {
   if (!/\bdata-cint-finding-drawer\b/i.test(html) && !/\bdata-cint-app-shell\b/i.test(html)) {
     return html;
@@ -1254,16 +1278,62 @@ export function hoistCodeIntelligenceFindingDrawer(html: string): string {
     /<(aside|div)\b[^>]*\bdata-cint-finding-drawer\b[^>]*>[\s\S]*?<\/\1>/gi,
     "",
   );
+  // Body-level drawer — never a shell grid child (modal/grid freeze risk).
+  if (/<\/body>/i.test(next)) {
+    return next.replace(/<\/body>/i, `${CINT_FINDING_DRAWER_HTML}\n</body>`);
+  }
+  if (/<\/html>/i.test(next)) {
+    return next.replace(/<\/html>/i, `${CINT_FINDING_DRAWER_HTML}\n</html>`);
+  }
+  // Fragment / iframe srcDoc without body — append after main/shell close.
   if (/<\/main>/i.test(next)) {
     return next.replace(/<\/main>/i, `</main>\n${CINT_FINDING_DRAWER_HTML}`);
   }
-  if (/\bdata-cint-app-shell\b/i.test(next)) {
-    return next.replace(
-      /(<div\b[^>]*\bdata-cint-app-shell\b[^>]*>)/i,
-      `$1${CINT_FINDING_DRAWER_HTML}`,
-    );
+  return `${next}\n${CINT_FINDING_DRAWER_HTML}`;
+}
+
+/**
+ * One Notifications + Ask Assistant dock on the shell.
+ * Strips per-page chrome duplicates that topbar toggles could not surface.
+ */
+export function hoistCodeIntelligenceShellDocks(html: string): string {
+  if (!/\bdata-cint-app-shell\b/i.test(html) && !/\bdata-cint-shell\b/i.test(html)) {
+    return html;
   }
-  return `${next}${CINT_FINDING_DRAWER_HTML}`;
+  let next = html;
+  // Drop action buttons from per-page chrome — topbar owns them.
+  next = next.replace(
+    /(<header\b[^>]*\bdata-cint-chrome\b[^>]*>)([\s\S]*?)(<\/header>)/gi,
+    (_full, open: string, body: string, close: string) =>
+      `${open}${body
+        .replace(/<button\b[^>]*\bdata-cint-open-notes\b[^>]*>[\s\S]*?<\/button>/gi, "")
+        .replace(/<button\b[^>]*\bdata-cint-open-assistant\b[^>]*>[\s\S]*?<\/button>/gi, "")}${close}`,
+  );
+  // Strip every notes/assistant dock (including prior shell copies), then reseat one pair.
+  next = next.replace(
+    /<aside\b[^>]*\bdata-cint-notes\b[^>]*>[\s\S]*?<\/aside>/gi,
+    "",
+  );
+  next = next.replace(
+    /<aside\b[^>]*\bdata-cint-assistant-dock\b[^>]*>[\s\S]*?<\/aside>/gi,
+    "",
+  );
+  next = next.replace(
+    /<(div|section)\b[^>]*\bdata-cint-notes\b[^>]*>[\s\S]*?<\/\1>/gi,
+    "",
+  );
+  next = next.replace(
+    /<(div|section)\b[^>]*\bdata-cint-assistant-dock\b[^>]*>[\s\S]*?<\/\1>/gi,
+    "",
+  );
+  // Body-level docks — never shell grid children (extra rows crush main).
+  if (/<\/body>/i.test(next)) {
+    return next.replace(/<\/body>/i, `${CINT_SHELL_DOCKS_HTML}\n</body>`);
+  }
+  if (/<\/html>/i.test(next)) {
+    return next.replace(/<\/html>/i, `${CINT_SHELL_DOCKS_HTML}\n</html>`);
+  }
+  return `${next}\n${CINT_SHELL_DOCKS_HTML}`;
 }
 
 /**
@@ -1365,6 +1435,8 @@ function flattenCodeIntelligenceStackedRoutes(html: string): string {
 }
 
 function chrome(): string {
+  /* Notifications / Ask Assistant live on data-cint-topbar only.
+     Shell docks are hoisted once by hoistCodeIntelligenceShellDocks — never per-page. */
   return `<div data-cint-workspace-main>
   <header data-cint-chrome>
     <div class="cint-row">
@@ -1384,20 +1456,10 @@ function chrome(): string {
       <span class="cint-chip" data-cint-freshness>Freshness: seeded demo</span>
       <span class="cint-chip" data-cint-source>Evidence: illustrative snapshot</span>
       <input data-cint-global-search placeholder="Search findings, files, deps" />
-      <button type="button" class="app-btn" data-cint-open-notes>Notifications</button>
       <span data-cint-profile>Alex Chen · Architect</span>
-      <button type="button" class="app-btn" data-cint-open-assistant>Ask Assistant</button>
     </div>
     <p class="cint-trust" data-cint-demo="1">Illustrative demo data. Changing repository updates lists and links in this workspace. No live GitHub, CVE feed, pull request, or model investigation.</p>
   </header>
-  <aside data-cint-notes class="cint-state" hidden><h3>Notifications</h3><div data-cint-notes-list></div></aside>
-  <aside data-cint-assistant-dock class="cint-state" hidden>
-    <h3>Contextual assistant</h3>
-    <p data-cint-assistant-context>Bound to the active repository and commit. Live Claude when CINT_ANTHROPIC_API_KEY is set.</p>
-    <form data-cint-form="assistant"><input name="q" placeholder="Ask about this repo" required />
-    <button class="app-btn" type="submit">Ask</button></form>
-    <div data-cint-thread></div>
-  </aside>
 </div>`;
 }
 

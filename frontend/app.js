@@ -1,1 +1,0 @@
-window.__cintProduct=1;

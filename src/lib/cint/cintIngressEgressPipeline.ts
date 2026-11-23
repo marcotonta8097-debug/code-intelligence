@@ -87,7 +87,7 @@ export function assessCintIngressEgressReadiness(): CintPipelineReadiness {
   const tokenDurability = getCintGitHubTokenDurability();
   const blockers: string[] = [];
   if (!oauthConfigured) {
-    blockers.push("CINT_GITHUB_CLIENT_ID / CINT_GITHUB_CLIENT_SECRET (or GITHUB_*) required for live GitHub extract");
+    blockers.push("CINT_GITHUB_CLIENT_ID / CINT_GITHUB_CLIENT_SECRET required for live GitHub extract (factory GITHUB_* not used)");
   }
   if (!isCintSupabaseConfigured() && tokenDurability === "file_plaintext") {
     blockers.push("Set CINT_OAUTH_STATE_SECRET (or CINT_SUPABASE_*) so OAuth tokens encrypt at rest on disk");
@@ -141,11 +141,11 @@ export async function collectCintExportBundle(
   return buildCintExportBundle({
     projectId,
     liveIndex: liveIndex ?? null,
-    repositories: await cintEntityStore.list("repositories"),
-    findings: await cintEntityStore.list("findings"),
-    evidence: await cintEntityStore.list("evidence"),
-    investigations: await cintEntityStore.list("investigations"),
-    remediation: await cintEntityStore.list("remediation"),
+    repositories: await cintEntityStore.list("repositories", projectId),
+    findings: await cintEntityStore.list("findings", projectId),
+    evidence: await cintEntityStore.list("evidence", projectId),
+    investigations: await cintEntityStore.list("investigations", projectId),
+    remediation: await cintEntityStore.list("remediation", projectId),
   });
 }
 
@@ -399,7 +399,7 @@ export async function ingestLocalSnapshotTree(input: {
     commitSha,
     fileCount: tree.files.length,
     tree,
-  });
+  }, input.projectId);
   const { evidence } = sealCodeIntelligenceLiveIndexEvidence(
     {},
     {

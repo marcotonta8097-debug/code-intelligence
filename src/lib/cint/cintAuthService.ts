@@ -124,6 +124,29 @@ function roleFromUser(user: User, profile: ProfileRow | null): CintAuthRole {
   return CINT_DEFAULT_SIGNUP_ROLE;
 }
 
+/**
+ * Empty org → Admin so Connect / Sync / Analyze are not locked behind Viewer.
+ * Persists when service role is present; still returns Admin for this request if not.
+ */
+async function resolveEffectiveOperatorRole(input: {
+  user: User;
+  profile: ProfileRow | null;
+  email: string;
+  displayName: string;
+}): Promise<CintAuthRole> {
+  const current = roleFromUser(input.user, input.profile);
+  if (current !== "Viewer") return current;
+  const adminCount = await countCintAdmins();
+  if (adminCount > 0) return current;
+  await upsertProfile({
+    userId: input.user.id,
+    email: input.email,
+    displayName: input.displayName,
+    role: "Admin",
+  });
+  return "Admin";
+}
+
 /** Supabase `expires_at` is usually Unix seconds; accept ms if already absolute. */
 export function normalizeCintExpiresAtMs(
   expiresAt: number | null | undefined,
@@ -230,12 +253,25 @@ export async function cintAuthSignIn(email: string, password: string): Promise<C
   }
   // Refresh is preferred but not required to enter the product — access-only still authenticates.
   const profile = await readProfile(user.id);
+  const resolvedEmail = (user.email || profile?.email || email || "").trim().toLowerCase();
+  const displayName =
+    profile?.display_name ||
+    (typeof user.user_metadata?.full_name === "string" ? user.user_metadata.full_name : "") ||
+    resolvedEmail.split("@")[0] ||
+    "Engineer";
+  const role = await resolveEffectiveOperatorRole({
+    user,
+    profile,
+    email: resolvedEmail,
+    displayName,
+  });
   const product = sessionFromAuth({
     user,
     accessToken: access,
     refreshToken: refresh.length >= 20 ? refresh : undefined,
     expiresAt: session.expires_at,
     profile,
+    roleOverride: role,
   });
   await upsertProfile({
     userId: product.userId,
@@ -369,11 +405,17 @@ export async function cintAuthResolveAccessToken(accessToken: string): Promise<C
       : "") ||
     email.split("@")[0] ||
     "Engineer";
+  const role = await resolveEffectiveOperatorRole({
+    user: data.user,
+    profile,
+    email,
+    displayName,
+  });
   const product = buildCintIdpSession({
     userId: data.user.id,
     email,
     displayName,
-    role: roleFromUser(data.user, profile),
+    role,
     accessToken: token,
     expiresAt: Date.now() + 1000 * 60 * 60,
   });

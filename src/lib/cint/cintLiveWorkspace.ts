@@ -59,7 +59,7 @@ export async function loadCintSyncedTree(
   repository?: string | null,
 ): Promise<CintLoadedTree | null> {
   const wanted = (repository || "").trim();
-  const rows = await cintEntityStore.list("repositories");
+  const rows = await cintEntityStore.list("repositories", projectId);
   const match =
     (wanted
       ? rows.find((r) => {
@@ -114,10 +114,10 @@ export function cintFindingStoreId(repository: string, findingId: string): strin
   return `finding_${repository.replace(/[^\w.-]+/g, "_")}_${findingId}`.slice(0, 120);
 }
 
-async function ensureCintRepositoryRow(repository: string): Promise<string> {
+async function ensureCintRepositoryRow(projectId: string, repository: string): Promise<string> {
   const wanted = repository.trim();
   const expectedId = cintRepositoryStoreId(wanted);
-  const rows = await cintEntityStore.list("repositories");
+  const rows = await cintEntityStore.list("repositories", projectId);
   const match = rows.find((r) => {
     const id = String(r.id ?? "");
     const name = String(r.name ?? "");
@@ -137,24 +137,26 @@ async function ensureCintRepositoryRow(repository: string): Promise<string> {
     provider: wanted.includes("/") ? "github_read" : "local",
     url: wanted.includes("/") ? `https://github.com/${wanted}` : `local-snapshot://${wanted}`,
     lastSyncedAt: new Date().toISOString(),
-  });
+  }, projectId);
   return expectedId;
 }
 
 async function upsertCintEntity(
+  projectId: string,
   table: "findings" | "evidence" | "investigations" | "remediation" | "analysis_runs",
   id: string,
   body: Record<string, unknown>,
 ): Promise<void> {
-  const existing = await cintEntityStore.get(table, id);
+  const existing = await cintEntityStore.get(table, id, projectId);
   if (existing) {
-    await cintEntityStore.update(table, id, { ...body, id });
+    await cintEntityStore.update(table, id, { ...body, id }, projectId);
     return;
   }
-  await cintEntityStore.create(table, { ...body, id });
+  await cintEntityStore.create(table, { ...body, id }, projectId);
 }
 
 export async function persistCintAnalysisResults(input: {
+  projectId: string;
   repository: string;
   commitSha: string | null;
   analysis: ReturnType<typeof analyzeCodeIntelligenceSnapshot>;
@@ -169,8 +171,8 @@ export async function persistCintAnalysisResults(input: {
   repositoryStoreId: string;
   runId: string;
 }> {
-  const { repository, commitSha, analysis } = input;
-  const repositoryStoreId = await ensureCintRepositoryRow(repository);
+  const { projectId, repository, commitSha, analysis } = input;
+  const repositoryStoreId = await ensureCintRepositoryRow(projectId, repository);
   let findings = 0;
   let evidence = 0;
   let investigations = 0;
@@ -186,7 +188,7 @@ export async function persistCintAnalysisResults(input: {
       confidence: f.confidence,
       engineProvenance: f.provenance,
     });
-    await upsertCintEntity("findings", storeId, {
+    await upsertCintEntity(projectId, "findings", storeId, {
       title: f.title,
       severity: f.severity,
       status: "open",
@@ -217,7 +219,7 @@ export async function persistCintAnalysisResults(input: {
       engineProvenance: "Engine",
       trust: "Medium",
     });
-    await upsertCintEntity("evidence", storeId, {
+    await upsertCintEntity(projectId, "evidence", storeId, {
       findingId: findingStoreId,
       summary: e.summary,
       location: e.location,
@@ -243,7 +245,7 @@ export async function persistCintAnalysisResults(input: {
       status: inv.state === "IN_REVIEW" ? "NeedsReview" : "Active",
       engineProvenance: "Engine",
     });
-    await upsertCintEntity("investigations", storeId, {
+    await upsertCintEntity(projectId, "investigations", storeId, {
       findingId: findingStoreId,
       status: inv.state,
       hypothesis: inv.hypotheses.join(" · ") || inv.question,
@@ -268,7 +270,7 @@ export async function persistCintAnalysisResults(input: {
       engineProvenance: "Engine",
       trust: "Medium",
     });
-    await upsertCintEntity("remediation", storeId, {
+    await upsertCintEntity(projectId, "remediation", storeId, {
       findingId: findingStoreId,
       proposal: rem.title,
       risk: rem.impact,
@@ -292,7 +294,7 @@ export async function persistCintAnalysisResults(input: {
     engineProvenance: "Engine",
     trust: "High",
   });
-  await upsertCintEntity("analysis_runs", runId, {
+  await upsertCintEntity(projectId, "analysis_runs", runId, {
     repositoryId: repositoryStoreId,
     repositoryName: repository,
     commitSha,

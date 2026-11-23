@@ -1,4 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { requireCintProductAuth } from "@/lib/cint/requireCintProductAuth";
 import { withSentryApiRoute } from "@/lib/monitoring/withSentryApiRoute";
 import {
   CINT_LIVE_INDEX_KEY,
@@ -23,6 +24,8 @@ export const Route = createFileRoute("/api/projects/$projectId/cint/github/sync"
         if (!projectId) {
           return Response.json({ ok: false, error: "missing_project" }, { status: 400 });
         }
+        const gate = await requireCintProductAuth(request, "integrations.manage");
+        if (!gate.ok) return gate.response;
         const conn = await getCintGitHubConnection(projectId);
         if (!conn?.accessToken) {
           return Response.json(
@@ -62,17 +65,21 @@ export const Route = createFileRoute("/api/projects/$projectId/cint/github/sync"
             syncFileCount: synced.tree.files.length,
           });
 
-          await cintEntityStore.upsert("repositories", {
-            id: `repo_${fullName.replace(/[^\w.-]+/g, "_")}`,
-            name: fullName,
-            url: synced.htmlUrl,
-            provider: "github_read",
-            lastSyncedAt: updated.lastSyncedAt,
-            defaultBranch: synced.defaultBranch,
-            commitSha: synced.commitSha,
-            fileCount: synced.tree.files.length,
-            tree: synced.tree,
-          });
+          await cintEntityStore.upsert(
+            "repositories",
+            {
+              id: `repo_${fullName.replace(/[^\w.-]+/g, "_")}`,
+              name: fullName,
+              url: synced.htmlUrl,
+              provider: "github_read",
+              lastSyncedAt: updated.lastSyncedAt,
+              defaultBranch: synced.defaultBranch,
+              commitSha: synced.commitSha,
+              fileCount: synced.tree.files.length,
+              tree: synced.tree,
+            },
+            projectId,
+          );
 
           const liveIndex = connectionToLiveIndexEvidence(updated);
           const metadataPersisted = await persistCintProjectLiveIndexMetadata(projectId, liveIndex);

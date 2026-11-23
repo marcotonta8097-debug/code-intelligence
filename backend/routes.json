@@ -10,10 +10,17 @@
     "import",
     "upload",
     "agents/run",
+    "remediation/apply",
     "github/connect",
     "github/repos",
+    "github/status",
     "github/sync",
     "github/publish-product",
     ":entity"
+  ],
+  "sourceRoots": [
+    "src/routes/api/projects/$projectId/cint",
+    "src/routes/api/cint",
+    "src/lib/cint"
   ]
 }

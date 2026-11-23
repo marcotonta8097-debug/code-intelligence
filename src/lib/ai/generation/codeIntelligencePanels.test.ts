@@ -7,6 +7,7 @@ import {
   CINT_PAINT_CSS_MARK,
   healCodeIntelligencePreviewHtml,
   hoistCodeIntelligenceFindingDrawer,
+  hoistCodeIntelligenceShellDocks,
   isCodeIntelligencePanelContext,
 } from "@/lib/ai/generation/codeIntelligencePanels";
 import { resolveWorkspaceModuleTemplate } from "@/core/workspace/workspaceModuleTemplates";
@@ -135,7 +136,7 @@ describe("code intelligence workspace panels", () => {
     expect(generateCodeIntelligenceRuntimeScript()).toContain("data-cint-signout");
     expect(generateCodeIntelligenceRuntimeScript()).toContain("function gatewayEntryView");
     expect(generateCodeIntelligenceRuntimeScript()).toContain("showGatewayEntry");
-    expect(generateCodeIntelligenceRuntimeScript()).toContain("CINT-EE-1.55");
+    expect(generateCodeIntelligenceRuntimeScript()).toContain("CINT-EE-1.66");
     expect(generateCodeIntelligenceRuntimeScript()).toContain('cintPath("admin")');
     expect(generateCodeIntelligenceRuntimeScript()).toContain("data-cint-admin-promote");
     expect(generateCodeIntelligenceRuntimeScript()).toContain("syncProjectId");
@@ -156,12 +157,21 @@ describe("code intelligence workspace panels", () => {
     expect(generateCodeIntelligenceRuntimeScript()).toContain("check browser Downloads");
     expect(generateCodeIntelligenceRuntimeScript()).toContain("cint-ee-136-gateway-view-kill");
     expect(generateCodeIntelligenceRuntimeScript()).toContain("ensureFindingDrawer");
+    expect(generateCodeIntelligenceRuntimeScript()).toContain("ensureShellDocks");
+    expect(generateCodeIntelligenceRuntimeScript()).toContain("toggleShellDock");
+    expect(generateCodeIntelligenceRuntimeScript()).toContain("function eventEl");
+    expect(generateCodeIntelligenceRuntimeScript()).toContain("nodeType===3");
+    expect(generateCodeIntelligenceRuntimeScript()).toContain("repoMeta");
+    expect(generateCodeIntelligenceRuntimeScript()).toContain("cint paintRest");
+    expect(generateCodeIntelligenceRuntimeScript()).toContain("adminPanelVisible");
+    expect(generateCodeIntelligenceRuntimeScript()).toContain("adminDirInflight");
     expect(generateCodeIntelligenceRuntimeScript()).toContain('querySelectorAll("body > [data-view], .website-shell > [data-view]")');
     expect(generateCodeIntelligenceRuntimeScript()).not.toContain('querySelectorAll("body > [data-view], .website-shell [data-view]")');
     expect(generateCodeIntelligenceRuntimeScript()).toContain("earlyWorkspaceRail");
     expect(generateCodeIntelligenceRuntimeScript()).toContain("QUALITY_CATS");
     expect(generateCodeIntelligenceRuntimeScript()).toContain('write("history"');
-    expect(generateCodeIntelligenceRuntimeScript()).toContain("showModal");
+    expect(generateCodeIntelligenceRuntimeScript()).not.toContain(".showModal(");
+    expect(generateCodeIntelligenceRuntimeScript()).not.toContain("showModal()");
     expect(generateCodeIntelligenceRuntimeScript()).toContain("openFindingDrawer");
     expect(generateCodeIntelligenceRuntimeScript()).toContain("mktWorkspace");
     expect(generateCodeIntelligenceRuntimeScript()).toContain("Topband → rail → main");
@@ -306,10 +316,39 @@ describe("code intelligence workspace panels", () => {
 </main></div>`;
     const healed = hoistCodeIntelligenceFindingDrawer(html);
     expect(healed.match(/data-cint-finding-drawer/g)).toHaveLength(1);
+    expect(healed).toContain("<aside data-cint-finding-drawer");
+    expect(healed).not.toContain("<dialog data-cint-finding-drawer");
     expect(healed.indexOf("data-cint-finding-drawer")).toBeGreaterThan(healed.indexOf("</main>"));
     expect(healed).not.toMatch(
       /data-view="overview"[^>]*>[\s\S]*?data-cint-finding-drawer[\s\S]*?<\/section>/i,
     );
+  });
+
+  it("hoists one shell notes/assistant dock and strips per-page chrome duplicates", () => {
+    const html = `<div class="app-shell" data-cint-app-shell="1"><main>
+<section data-view="overview"><header data-cint-chrome>
+<button type="button" data-cint-open-notes>Notifications</button>
+<button type="button" data-cint-open-assistant>Ask Assistant</button>
+</header>
+<aside data-cint-notes class="cint-state" hidden><div data-cint-notes-list></div></aside>
+<aside data-cint-assistant-dock class="cint-state" hidden><form data-cint-form="assistant"></form></aside>
+</section>
+<section data-view="quality"><header data-cint-chrome>
+<button type="button" data-cint-open-notes>Notifications</button>
+</header>
+<aside data-cint-notes hidden></aside>
+</section>
+</main></div>`;
+    const healed = hoistCodeIntelligenceShellDocks(html);
+    expect(healed.match(/data-cint-notes/g)?.filter((x) => x === "data-cint-notes").length).toBeGreaterThanOrEqual(1);
+    expect(healed.match(/<aside[^>]*data-cint-notes/g)).toHaveLength(1);
+    expect(healed.match(/data-cint-assistant-dock/g)).toHaveLength(1);
+    expect(healed).toContain('data-cint-shell-dock="notes"');
+    expect(healed).toContain('data-cint-shell-dock="assistant"');
+    expect(healed).not.toMatch(
+      /data-cint-chrome[\s\S]*?data-cint-open-notes/,
+    );
+    expect(healed).toContain("data-cint-shell-dock");
   });
 
   it("does not force a hidden landing panel over login in gateway CSS", () => {

@@ -29,9 +29,25 @@ const bodySchema = z.object({
   password: z.string().min(6).optional(),
   displayName: z.string().trim().min(1).max(80).optional(),
   refreshToken: z.string().min(20).optional(),
-  /** Optional recovery redirect (must be allow-listed in CINT Supabase Auth settings). */
-  redirectTo: z.string().url().optional(),
+  /**
+   * Optional recovery redirect (must be allow-listed in CINT Supabase Auth settings).
+   * Preview srcdoc often sends about:srcdoc — drop non-http(s) so Zod/Auth never 500.
+   */
+  redirectTo: z.string().optional(),
 });
+
+/** Only http(s) product URLs — never about:srcdoc / blob / empty. */
+function sanitizeAuthRedirectTo(raw: string | undefined): string | undefined {
+  const value = (raw || "").trim();
+  if (!value) return undefined;
+  try {
+    const u = new URL(value);
+    if (u.protocol !== "http:" && u.protocol !== "https:") return undefined;
+    return u.toString();
+  } catch {
+    return undefined;
+  }
+}
 
 function bearer(request: Request): string {
   const h = request.headers.get("authorization") || "";
@@ -59,35 +75,44 @@ function sessionJson(
 }
 
 export async function handleCintAuthGet(request: Request, projectId: string): Promise<Response> {
-  if (!isCintAuthConfigured()) {
+  try {
+    if (!isCintAuthConfigured()) {
+      return Response.json(
+        {
+          ok: false,
+          code: CINT_AUTH_NOT_CONFIGURED_CODE,
+          error: cintAuthNotConfiguredMessage(),
+          configured: false,
+        },
+        { status: 503 },
+      );
+    }
+    const token = bearer(request);
+    if (!token) {
+      return Response.json(
+        { ok: false, code: "cint_auth_required", error: "Bearer token required", configured: true },
+        { status: 401 },
+      );
+    }
+    const result = await cintAuthResolveAccessToken(token);
+    if (!result.ok) {
+      return Response.json(
+        { ok: false, code: result.code, error: result.error, configured: true },
+        { status: result.status },
+      );
+    }
+    return sessionJson(result, projectId, { configured: true });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "cint_auth_get_failed";
     return Response.json(
-      {
-        ok: false,
-        code: CINT_AUTH_NOT_CONFIGURED_CODE,
-        error: cintAuthNotConfiguredMessage(),
-        configured: false,
-      },
-      { status: 503 },
+      { ok: false, code: "cint_auth_internal", error: message },
+      { status: 500 },
     );
   }
-  const token = bearer(request);
-  if (!token) {
-    return Response.json(
-      { ok: false, code: "cint_auth_required", error: "Bearer token required", configured: true },
-      { status: 401 },
-    );
-  }
-  const result = await cintAuthResolveAccessToken(token);
-  if (!result.ok) {
-    return Response.json(
-      { ok: false, code: result.code, error: result.error, configured: true },
-      { status: result.status },
-    );
-  }
-  return sessionJson(result, projectId, { configured: true });
 }
 
 export async function handleCintAuthPost(request: Request, projectId: string): Promise<Response> {
+  try {
   const originBlock = assertSameOriginAuthRequest(request);
   if (originBlock) return originBlock;
 
@@ -105,8 +130,25 @@ export async function handleCintAuthPost(request: Request, projectId: string): P
   try {
     await enforceRateLimitPlaceholder(rateId, `auth:${action}`);
   } catch (error) {
-    if (error instanceof Response) return error;
-    return new Response("Too many requests", { status: 429 });
+    if (error instanceof Response) {
+      // Prefer JSON even when the limiter threw a plain-text Response.
+      try {
+        const text = await error.text();
+        return Response.json(
+          { ok: false, code: "rate_limited", error: text || "Too many requests" },
+          { status: error.status || 429 },
+        );
+      } catch {
+        return Response.json(
+          { ok: false, code: "rate_limited", error: "Too many requests" },
+          { status: 429 },
+        );
+      }
+    }
+    return Response.json(
+      { ok: false, code: "rate_limited", error: "Too many requests" },
+      { status: 429 },
+    );
   }
 
   if (action === "logout") {
@@ -138,7 +180,7 @@ export async function handleCintAuthPost(request: Request, projectId: string): P
     }
     const result = await cintAuthRequestPasswordReset({
       email: parsed.data.email,
-      redirectTo: parsed.data.redirectTo,
+      redirectTo: sanitizeAuthRedirectTo(parsed.data.redirectTo),
     });
     if (!result.ok) {
       return Response.json(
@@ -187,4 +229,11 @@ export async function handleCintAuthPost(request: Request, projectId: string): P
     );
   }
   return sessionJson(result, projectId, { message: "Signed in" });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "cint_auth_post_failed";
+    return Response.json(
+      { ok: false, code: "cint_auth_internal", error: message },
+      { status: 500 },
+    );
+  }
 }

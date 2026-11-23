@@ -73,6 +73,7 @@ function resolveRepoSlug(raw?: string): string {
 }
 
 async function persistPackAsRepositoryRow(input: {
+  projectId: string;
   repository: string;
   pack: CintProductSourcePack;
   provider: string;
@@ -81,19 +82,23 @@ async function persistPackAsRepositoryRow(input: {
   defaultBranch: string;
 }): Promise<void> {
   const tree = cintProductPackToRepositoryTree(input.pack, input.repository);
-  await cintEntityStore.upsert("repositories", {
-    id: cintRepositoryStoreId(input.repository),
-    name: input.repository,
-    url: input.url,
-    provider: input.provider,
-    lastSyncedAt: new Date().toISOString(),
-    defaultBranch: input.defaultBranch,
-    commitSha: input.commitSha,
-    fileCount: input.pack.fileCount,
-    tree,
-    product: "code_intelligence",
-    packVersion: input.pack.packVersion,
-  });
+  await cintEntityStore.upsert(
+    "repositories",
+    {
+      id: cintRepositoryStoreId(input.repository),
+      name: input.repository,
+      url: input.url,
+      provider: input.provider,
+      lastSyncedAt: new Date().toISOString(),
+      defaultBranch: input.defaultBranch,
+      commitSha: input.commitSha,
+      fileCount: input.pack.fileCount,
+      tree,
+      product: "code_intelligence",
+      packVersion: input.pack.packVersion,
+    },
+    input.projectId,
+  );
 }
 
 /** Ingest CINT product pack locally — Analyze without waiting on GitHub. */
@@ -126,6 +131,7 @@ export async function selfLoadCintProductSource(projectId: string): Promise<Cint
   const repository = CINT_PRODUCT_REPOSITORY_ID;
   const commitSha = `cint_product_${pack.packVersion}_${pack.fileCount}`;
   await persistPackAsRepositoryRow({
+    projectId,
     repository,
     pack,
     provider: "cint_product_self",
@@ -230,6 +236,7 @@ export async function publishCintProductToGitHub(
   });
 
   await persistPackAsRepositoryRow({
+    projectId,
     repository,
     pack,
     provider: "github_cint_product",

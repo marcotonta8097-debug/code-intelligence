@@ -1,4 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { requireCintProductAuth } from "@/lib/cint/requireCintProductAuth";
 import { withSentryApiRoute } from "@/lib/monitoring/withSentryApiRoute";
 import {
   publishCintProductToGitHub,
@@ -12,11 +13,13 @@ const PATH = "/api/projects/$projectId/cint/github/publish-product";
 export const Route = createFileRoute("/api/projects/$projectId/cint/github/publish-product")({
   server: {
     handlers: {
-      GET: withSentryApiRoute(PATH, async ({ params }) => {
+      GET: withSentryApiRoute(PATH, async ({ request, params }) => {
         const projectId = params?.projectId?.trim();
         if (!projectId) {
           return Response.json({ ok: false, error: "missing_project" }, { status: 400 });
         }
+        const gate = await requireCintProductAuth(request, "integrations.manage");
+        if (!gate.ok) return gate.response;
         const pack = buildCintProductSourcePack({ maxFiles: 8 });
         return Response.json({
           ok: true,
@@ -33,6 +36,8 @@ export const Route = createFileRoute("/api/projects/$projectId/cint/github/publi
         if (!projectId) {
           return Response.json({ ok: false, error: "missing_project" }, { status: 400 });
         }
+        const gate = await requireCintProductAuth(request, "integrations.manage");
+        if (!gate.ok) return gate.response;
         const body = (await request.json().catch(() => ({}))) as {
           mode?: string;
           action?: string;

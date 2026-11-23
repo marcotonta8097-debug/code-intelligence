@@ -48,6 +48,8 @@ const ROLE_CAPABILITIES: Record<CintAuthRole, readonly CintCapability[]> = {
     "findings.triage",
     "security.triage",
     "remediation.propose",
+    // Connect / Sync are part of the live analysis path for security operators.
+    "integrations.manage",
   ],
   Viewer: ["workspace.read"],
 };

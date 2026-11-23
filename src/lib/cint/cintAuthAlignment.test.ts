@@ -14,7 +14,12 @@ describe("CI auth alignment (B1 audit)", () => {
     expect(js).not.toContain("auth/login");
     expect(js).not.toContain("auth/signup");
     expect(js).not.toContain("Demo reset — continue to sign in");
-    expect(js).toContain("CINT-EE-1.56");
+    expect(js).toContain("CINT-EE-1.60");
+    expect(js).toContain("demo Admin is disabled");
+    expect(js).toContain("function authHeaders");
+    expect(js).toContain("function authBearerHeaders");
+    expect(js).toContain("function authGateMessage");
+    expect(js).toContain('cintPath("github/status"),{headers:authHeaders()}');
     expect(js).toContain("runLiveAnalysis");
     expect(js).toContain("runGithubConnectAction");
     expect(js).toContain("publish-product");

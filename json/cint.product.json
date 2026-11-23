@@ -7,5 +7,6 @@
     "backend/",
     "json/",
     "src/"
-  ]
+  ],
+  "note": "Full backend route sources attach on server publish / external deploy."
 }

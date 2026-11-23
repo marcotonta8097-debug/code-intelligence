@@ -4,10 +4,13 @@ import {
   buildCintGitHubAuthorizeUrl,
   cintGitHubNotConfiguredMessage,
   cintGitHubOAuthRedirectUri,
+  cintGitHubRedirectUriRegistrationHint,
   isCintGitHubOAuthConfigured,
+  normalizeCintOAuthReturnPath,
   CINT_GITHUB_NOT_CONFIGURED_CODE,
 } from "@/lib/cint/cintGitHubConfig";
 import { signCintGitHubOAuthState } from "@/lib/cint/cintOAuthState";
+import { requireCintProductAuth } from "@/lib/cint/requireCintProductAuth";
 
 const PATH = "/api/projects/$projectId/cint/github/connect";
 
@@ -19,6 +22,8 @@ export const Route = createFileRoute("/api/projects/$projectId/cint/github/conne
         if (!projectId) {
           return Response.json({ ok: false, error: "missing_project" }, { status: 400 });
         }
+        const gate = await requireCintProductAuth(request, "integrations.manage");
+        if (!gate.ok) return gate.response;
         if (!isCintGitHubOAuthConfigured()) {
           return Response.json(
             {
@@ -41,20 +46,16 @@ export const Route = createFileRoute("/api/projects/$projectId/cint/github/conne
             );
           }
           const body = (await request.json().catch(() => ({}))) as { returnPath?: string };
-          // Always return into this CI project on the Replica host after GitHub authorizes.
-          const returnPath =
-            body.returnPath?.startsWith(`/projects/${projectId}`) ||
-            body.returnPath?.startsWith(`/deploy/${projectId}`)
-              ? body.returnPath
-              : `/projects/${encodeURIComponent(projectId)}?tab=generator`;
+          // Tier 1: return to published CINT surface — never Replica generator chrome.
+          const returnPath = normalizeCintOAuthReturnPath(projectId, body.returnPath);
           const state = signCintGitHubOAuthState(projectId, returnPath);
-          const redirectUrl = buildCintGitHubAuthorizeUrl(
-            state,
-            cintGitHubOAuthRedirectUri(),
-          );
+          const redirectUri = cintGitHubOAuthRedirectUri(projectId, request);
+          const redirectUrl = buildCintGitHubAuthorizeUrl(state, redirectUri);
           return Response.json({
             ok: true,
             redirectUrl,
+            redirectUri,
+            registrationHint: cintGitHubRedirectUriRegistrationHint(request),
             provider: "github_read",
             projectId,
             returnPath,
